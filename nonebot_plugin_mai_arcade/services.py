@@ -23,7 +23,7 @@ async def search_nearcade_shops(keyword: str, page: int = 1, limit: int = 3) -> 
         import urllib.parse
         
         encoded_query = urllib.parse.quote(keyword)
-        url = f"https://nearcade.phizone.cn/api/shops?q={encoded_query}&page={page}&limit={limit}"
+        url = f"https://nearcade.cn/api/shops?q={encoded_query}&page={page}&limit={limit}"
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (compatible; NoneBot-Arcade-Plugin)',
@@ -91,7 +91,7 @@ async def call_discover(lat: float, lon: float, radius: int = 10, name: str = No
     try:
         import urllib.parse
         
-        BASE_HOST = "nearcade.phizone.cn"
+        BASE_HOST = "nearcade.cn"
         params = {
             "latitude": str(lat),
             "longitude": str(lon),

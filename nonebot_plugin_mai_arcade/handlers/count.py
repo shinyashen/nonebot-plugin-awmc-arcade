@@ -8,11 +8,12 @@ import math
 import datetime
 import http.client
 
-from nonebot import on_regex, on_command, on_endswith
+from nonebot import on_regex, get_plugin_config, on_endswith
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageSegment, Event
 from nonebot.params import T_State
 
-from ..config import data_json, re_write_json, block_group
+from ..config import Config, data_json, re_write_json, block_group
+config = get_plugin_config(Config)
 
 
 sv_arcade = on_regex(r"^([\u4e00-\u9fa5\w]+)\s*(==\d+|={1}\d+|\+\+\d+|--\d+|\+\+|--|[+-]?\d+)?$", priority=100)
@@ -96,7 +97,7 @@ async def handle_sv_arcade(bot: Bot, event: GroupMessageEvent, state: T_State):
         await sv_arcade.finish(f"[{name}] 当前人数更新为 {new_num}\n由 {event.sender.nickname} 于 {current_time} 更新")
 
     shop_id = re.search(r'/(\d+)/?$', arcade_data['map'][0]).group(1)
-    conn = http.client.HTTPSConnection("nearcade.phizone.cn")
+    conn = http.client.HTTPSConnection("nearcade.cn")
     conn.request("GET", f"/api/shops/bemanicn/{shop_id}/attendance")
     res = conn.getresponse()
     if res.status != 200:
@@ -113,7 +114,7 @@ async def handle_sv_arcade(bot: Bot, event: GroupMessageEvent, state: T_State):
             new_num = cha + new_num
             num_list.clear()
             num_list.append(new_num)
-    conn = http.client.HTTPSConnection("nearcade.phizone.cn")
+    conn = http.client.HTTPSConnection("nearcade.cn")
     conn.request("GET", f"/api/shops/bemanicn/{shop_id}")
     res = conn.getresponse()
     if res.status != 200:
@@ -141,14 +142,11 @@ async def handle_sv_arcade(bot: Bot, event: GroupMessageEvent, state: T_State):
         wait_time_min = int(min_rounds * per_round_minutes)
         wait_time_max = int(max_rounds * per_round_minutes)
 
-        if wait_time_avg <= 20:
-            smart_tip = "✅ 舞萌启动！"
-        elif 20 < wait_time_avg <= 40:
-            smart_tip = "🕰️ 小排队还能忍"
-        elif 40 < wait_time_avg <= 90:
-            smart_tip = "💀 DBD，纯折磨，建议换店"
-        else:  # > 90
-            smart_tip = "🪦 建议回家（或者明天再来）"
+        smart_tip = config.count_smart_tips[-1].tip
+        for rule in config.count_smart_tips:
+            if wait_time_avg <= rule.max_minutes:
+                smart_tip = rule.tip
+                break
 
         msg = (
             f"📍 {name}  人数已更新为 {new_num}\n"
@@ -158,11 +156,11 @@ async def handle_sv_arcade(bot: Bot, event: GroupMessageEvent, state: T_State):
             f"💡 {smart_tip}"
         )
     else:
-        # 无需等待
+        smart_tip = config.count_smart_tips[0].tip
         msg = (
             f"📍 {name}  人数已更新为 {new_num}\n"
             f"🕹️ 机台数量：{coutnum} 台（每轮 {players_per_round} 人）\n\n"
-            f"✅ 无需等待，快去出勤吧！"
+            f"{smart_tip}"
         )
 
     payload = json.dumps({
@@ -171,12 +169,12 @@ async def handle_sv_arcade(bot: Bot, event: GroupMessageEvent, state: T_State):
         ]
     })
     headers = {
-        'Authorization': 'Bearer nk_eimMHQaX7F6g0LlLg6ihhweRQTyLxUTVKHuIdijadC',
+        f'Authorization': f'Bearer {config.nearcade_api_token}',
         'Content-Type': 'application/json'
     }
 
     try:
-        conn = http.client.HTTPSConnection("nearcade.phizone.cn", timeout=10)
+        conn = http.client.HTTPSConnection("nearcade.cn", timeout=10)
         conn.request("POST", f"/api/shops/bemanicn/{shop_id}/attendance", payload, headers)
         res = conn.getresponse()
         raw_data = res.read().decode("utf-8")
@@ -234,11 +232,11 @@ async def handle_sv_arcade_on_fullmatch(bot: Bot, event: Event, state: T_State):
             num_list = arcade_info.setdefault("num", [])
             try:
                 shop_id = re.search(r'/(\d+)/?$', arcade_info['map'][0]).group(1)
-                conn = http.client.HTTPSConnection("nearcade.phizone.cn")
+                conn = http.client.HTTPSConnection("nearcade.cn")
                 conn.request("GET", f"/api/shops/bemanicn/{shop_id}/attendance")
                 res = conn.getresponse()
                 if res.status != 200:
-                    await sv_arcade.send(f"获取 shop {shop_id} 云端出勤人数失败: {res.status}")
+                    await sv_arcade_on_fullmatch.finish(f"获取 shop {shop_id} 云端出勤人数失败: {res.status}")
                 raw_data = res.read().decode("utf-8")
                 data = json.loads(raw_data)
                 regnum = data["total"]
@@ -281,14 +279,11 @@ async def handle_sv_arcade_on_fullmatch(bot: Bot, event: Event, state: T_State):
                         wait_time_min = int(min_rounds * per_round_minutes)
                         wait_time_max = int(max_rounds * per_round_minutes)
 
-                        if wait_time_avg <= 20:
-                            smart_tip = "✅ 舞萌启动！"
-                        elif 20 < wait_time_avg <= 40:
-                            smart_tip = "🕰️ 小排队还能忍"
-                        elif 40 < wait_time_avg <= 90:
-                            smart_tip = "💀 DBD，纯折磨，建议换店"
-                        else:  # > 90
-                            smart_tip = "🪦 建议回家（或者明天再来）"
+                        smart_tip = config.count_smart_tips[-1].tip
+                        for rule in config.count_smart_tips:
+                            if wait_time_avg <= rule.max_minutes:
+                                smart_tip = rule.tip
+                                break
 
                         msg = (
                             f"📍 {found_arcade}  人数为 {current_num}\n"
@@ -298,11 +293,11 @@ async def handle_sv_arcade_on_fullmatch(bot: Bot, event: Event, state: T_State):
                             f"💡 {smart_tip}"
                         )
                     else:
-                        # 无需等待
+                        smart_tip = config.count_smart_tips[0].tip
                         msg = (
                             f"📍 {found_arcade}  人数为 {current_num}\n"
                             f"🕹️ 机台数量：{coutnum} 台（每轮 {players_per_round} 人）\n\n"
-                            f"✅ 无需等待，快去出勤吧！"
+                            f"{smart_tip}"
                         )
 
                     if last_updated_at and last_updated_by:
@@ -332,14 +327,11 @@ async def handle_sv_arcade_on_fullmatch(bot: Bot, event: Event, state: T_State):
                         wait_time_min = int(min_rounds * per_round_minutes)
                         wait_time_max = int(max_rounds * per_round_minutes)
 
-                        if wait_time_avg <= 20:
-                            smart_tip = "✅ 舞萌启动！"
-                        elif 20 < wait_time_avg <= 40:
-                            smart_tip = "🕰️ 小排队还能忍"
-                        elif 40 < wait_time_avg <= 90:
-                            smart_tip = "💀 DBD，纯折磨，建议换店"
-                        else:  # > 90
-                            smart_tip = "🪦 建议回家（或者明天再来）"
+                        smart_tip = config.count_smart_tips[-1].tip
+                        for rule in config.count_smart_tips:
+                            if wait_time_avg <= rule.max_minutes:
+                                smart_tip = rule.tip
+                                break
 
                         msg = (
                             f"📍 {found_arcade}  人数为 {current_num}\n"
@@ -349,11 +341,11 @@ async def handle_sv_arcade_on_fullmatch(bot: Bot, event: Event, state: T_State):
                             f"💡 {smart_tip}"
                         )
                     else:
-                        # 无需等待
+                        smart_tip = config.count_smart_tips[0].tip
                         msg = (
                             f"📍 {found_arcade}  人数为 {current_num}\n"
                             f"🕹️ 机台数量：{coutnum} 台（每轮 {players_per_round} 人）\n\n"
-                            f"✅ 无需等待，快去出勤吧！"
+                            f"{smart_tip}"
                         )
 
                     if last_updated_at and last_updated_by:

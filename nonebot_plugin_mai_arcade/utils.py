@@ -135,5 +135,5 @@ def get_shop_url(shop: dict) -> str:
     source = shop.get('source', 'bemanicn')
     shop_id = shop.get('id')
     if shop_id:
-        return f"https://nearcade.phizone.cn/shops/{source}/{shop_id}"
+        return f"https://nearcade.cn/shops/{source}/{shop_id}"
     return ""

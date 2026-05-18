@@ -108,7 +108,7 @@ async def handle_get_run(bot: Bot, event: GroupMessageEvent):
                 data_json[group_id][n]['list'].remove(nickname)
                 await re_write_json()
                 await get_run.finish(MessageSegment.text(msg))
-        await get_run.finish(f"今晚被白丝小萝莉魅魔榨精（您未加入排卡）")
+        await get_run.finish(f"您未加入排卡")
     else:
         await get_run.finish(f"本群尚未开通排卡功能,请联系群主或管理员添加群聊")
 
