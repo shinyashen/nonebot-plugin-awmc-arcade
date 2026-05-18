@@ -127,6 +127,11 @@ nonebot_plugin_mai_arcade/
 <details open>
 <summary>直接下载</summary> 
 clone 本项目，将nonebot_plugin_mai_arcade文件夹放入您的nonebot2插件目录内(通常位于 : 您的插件根目录\src\plugins)
+
+安装依赖：
+
+    pip install -r requirements.txt
+
 </details>
 
 <details open>
