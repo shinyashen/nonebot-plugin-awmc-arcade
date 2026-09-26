@@ -1,264 +1,127 @@
-<div align="center">
-  <!-- 
-  <a href="https://v2.nonebot.dev/store"><img src="https://github.com/A-kirami/nonebot-plugin-template/blob/resources/nbp_logo.png" width="180" height="180" alt="NoneBotPluginLogo"></a>
-  <br>
-  <p><img src="./docs/yuuzuki_join_s.gif" width="240" alt="NoneBotPluginText"></p>
-  -->
-  <a href="https://v2.nonebot.dev/store"><img src="./docs/NoneBotPlugin.svg" width="300" alt="logo"></a>
-</div>
+# nonebot-plugin-awmc-arcade
 
-<div align="center">
-  
-# nonebot-plugin-mai-arcade
+[![python3](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-_✨ NoneBot2 插件 为maimai玩家提供机厅人数上报、附近机厅查找、线上排卡、Nearcade云同步功能支持 ✨_
+[nonebot-plugin-awmc-helper](https://github.com/shinyashen/nonebot-plugin-awmc-helper) 生态的第三方机厅插件：机厅人数上报、附近机厅查找、线上排卡、Nearcade 云同步。迁移自 [YuuzukiRin/nonebot_plugin_mai_arcade](https://github.com/YuuzukiRin/nonebot_plugin_mai_arcade) v0.2.0，按 awmc 生态约定重写了存储、HTTP 与会话层。
 
-<a href="./LICENSE">
-</a>
-<img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="python">
-<img src="https://img.shields.io/badge/nonebot-2.0+-red.svg" alt="nonebot">
-<img src="https://img.shields.io/badge/version-0.2.0-green.svg" alt="version">
-</div>
+> **替代内置机厅插件**：主插件内置的 `awmc.arcade` 与本插件指令大量同名，二者只能启用其一。启用本插件请把 `arcade` 加入主插件 `awmc_disabled_plugins` 配置。内置机厅表（华立官方库/订阅）不会自动迁移，群内需重新「添加群聊 + 添加机厅」。
 
-## 📖 介绍
+## 特性
 
-nonebot-plugin-mai-arcade 是一款强大的基于`本地&云端数据`的多功能机厅插件，旨在为群聊舞萌玩家提供机厅人数上报、附近机厅查找、线上排卡、Nearcade云同步功能支持。本插件可实现机厅人数上报、更新，机厅信息云同步，机厅地图、别名添加，查找附近的机厅，线上排卡，机厅状态管理等功能。
+- **每群独立机厅表**：群主/管理员开通后，通过 Nearcade 搜索把机厅加入本群（自动挂店铺链接与地图），跨群互不可见；
+- **人数上报 + 云同步**：`店名++`、`店名+3`、`店名=8` 一句话上报，自动与 Nearcade 云端出勤互相校平，并按机台数估算等待时间给出勤建议；
+- **线上排卡**：`排卡 <机厅>` 入队、`上机` 轮转、`延后` 调序、`闭店` 清队，队列按用户 id 记账（重名/改名不会错位）；
+- **附近机厅**：群内直接发送位置消息，基于 Nearcade 数据库返回 3 家最近机厅；
+- **别名与序号索引**：机厅、别名、地图 URL 全部支持序号操作，群内口播友好；
+- **静默监听模式**：SUPERUSER 可对群关闭人数上报的确认回复（只保留云同步），配置持久化。
 
-### 🚀 v0.2.0 重构版本
+## 要求
 
-**☁️ Nearcade云同步集成**：
-- [x] **附近机厅功能**：群聊发送位置发现附近机厅
-- [x] **实时数据上传**：机厅人数变更自动同步至云端
-- [x] **机厅数据同步**：从云端同步实时机厅人数信息
-- [x] **添加机厅检索**：支持关键词搜索平台收录机厅
-- [x] **地图自动添加**：选择搜索到的机厅自动添加地图网址
+- NoneBot2 ≥ 2.4.3，Python ≥ 3.10
+- OneBot v11 适配器（位置监听与群管权限依赖 v11 协议）
+- 一个 [Nearcade](https://nearcade.cn) 开发者 API 令牌（用于人数上传；不配置则使用上游公开的开发令牌，仅保证可用，建议替换）
 
-**🏗️ 架构升级**：
-- [x] **模块化设计**：重构单文件为模块化架构
-- [x] **Bug修复**：修复命令前缀问题
+## 安装
 
-### 🎯 核心功能
+**方式一（主推）：awmc_plugins/ 目录即装**
 
-- [x] **机厅人数**：上报机厅人数，自动同步云端
-- [x] **出勤统计**：显示当日更新过人数的机厅信息
-- [x] **用户更新**：显示最新上报用户名及上报时间
-- [x] **别名系统**：添加和管理机厅别名
-- [x] **地图系统**：添加和管理机厅音游地图网址
-- [x] **索引系统**：通过序号快捷管理机厅、别名、地图
-- [x] **线上排卡**：实现线上排卡功能，指定机厅排卡
-- [x] **机厅搜索**：添加时关键词搜索机厅
-- [x] **附近机厅**：发送位置发现附近机厅
-- [x] **平均等待时间**：根据机厅人数、机台数预测当前机厅平均等待时间，给出出勤建议
-- [ ] 随个机厅出勤
-- [ ] 更多机台种类
+主插件支持 `awmc_plugins/` 固定目录的「clone 即安装」：
 
-### 💡 功能说明
-
-<details>
-<summary><strong>📍 附近机厅</strong>：基于Nearcade数据库的位置服务，在群聊发送位置可发现附近机厅</summary>
-
-![image](https://github.com/YuuzukiRin/nonebot_plugin_mai_arcade/blob/main/docs/discover_nearby_arcades.png)
-
-</details>
-
-<details>
-<summary><strong>⏰ 实时建议</strong>：查询机厅人数显示最新上报用户及上报时间，从Nearcade同步实时人数信息，同时根据人数和机台信息给出出勤建议</summary>
-
-![image](https://github.com/YuuzukiRin/nonebot_plugin_mai_arcade/blob/main/docs/live_suggestion.png)
-
-</details>
-
-<details>
-<summary><strong>📊 出勤统计</strong>：使用<code>mai/机厅人数</code>指令显示当日更新过人数的机厅列表，帮助群友选择出勤地点</summary>
-
-![image](https://github.com/YuuzukiRin/nonebot_plugin_mai_arcade/blob/main/docs/attendance_stats.png)
-
-</details>
-
-<details>
-<summary><strong>☁️ 云端同步</strong>：每次人数更新自动上传至Nearcade云端，与平台同步实时数据</summary>
-
-![image](https://github.com/YuuzukiRin/nonebot_plugin_mai_arcade/blob/main/docs/sync_to_cloud.png)
-
-</details>
-
-<details>
-<summary><strong>🔍 机厅检索</strong>：集成Nearcade API，使用<code>添加机厅</code>指令时会根据关键词自动检索相关机厅，可通过序号选择添加相应机厅或操作</summary>
-
-![image](https://github.com/YuuzukiRin/nonebot_plugin_mai_arcade/blob/main/docs/search_add_arcades.png)
-
-</details>
-
-<details>
-<summary><strong>🔢 索引系统</strong>：使用<code>机厅列表</code>指令可查看群聊添加的机厅，可使用序号指代相应机厅名称（别名、地图同理）</summary>
-
-![image](https://github.com/YuuzukiRin/nonebot_plugin_mai_arcade/blob/main/docs/arcade_list_manage.png)
-
-</details>
-
-<details>
-<summary><strong>🗺️ 地图系统</strong>：使用<code>mai/（添加）机厅地图</code>指令可添加、查看指定机厅音游地图网址，支持<a href="https://nearcade.cn/">Nearcade</a>和<a href="https://map.bemanicn.com">BEMANICN全国音游地图</a>
-<br><br><strong>（注意：只有添加地图网址的机厅才可以使用云端同步、实时建议功能）</strong></summary>
-
-![image](https://github.com/YuuzukiRin/nonebot_plugin_mai_arcade/blob/main/docs/mapurl_setup.png)
-
-</details>
-
-## 🏗️ 项目结构
-
-```
-nonebot_plugin_mai_arcade/
-├── __init__.py          # 主入口文件
-├── config.py           # 配置管理
-├── utils.py            # 工具函数
-├── services.py         # 外部API服务
-└── handlers/           # 功能模块
-    ├── __init__.py
-    ├── arcade.py       # 机厅管理
-    ├── queue.py        # 排卡管理
-    ├── alias.py        # 别名管理
-    ├── maps.py         # 地图管理
-    ├── count.py        # 人数统计
-    └── admin.py        # 管理员功能
+```bash
+cd <bot 工作目录>
+git clone https://github.com/shinyashen/nonebot-plugin-awmc-arcade.git awmc_plugins/nonebot-plugin-awmc-arcade
 ```
 
-## 💿 安装
+重启 bot 即自动加载。同时在 `.env` 停用内置机厅插件：
 
-<details open>
-<summary>直接下载</summary> 
-clone 本项目，将nonebot_plugin_mai_arcade文件夹放入您的nonebot2插件目录内(通常位于 : 您的插件根目录\src\plugins)
-
-安装依赖：
-
-    pip install -r requirements.txt
-
-</details>
-
-<details open>
-<summary>使用 nb-cli 安装</summary> 
-在 nonebot2 项目的根目录下打开命令行, 输入以下指令即可安装
-
-    nb plugin install nonebot-plugin-mai-arcade
-
-</details>
-
-<details>
-<summary>使用包管理器安装</summary> 
-在 nonebot2 项目的插件目录下, 打开命令行, 根据你使用的包管理器, 输入相应的安装命令
-
-<details>
-<summary>pip</summary> 
-
-    pip install nonebot-plugin-mai-arcade
-
-</details>
-
-打开 nonebot2 项目根目录下的 `pyproject.toml` 文件, 在 `[tool.nonebot]` 部分追加写入
-
-    plugins = ["nonebot_plugin_mai_arcade"]
-
-</details>
-
-## ⚙️ 配置
-
-在 NoneBot2 项目的 `.env` 文件中添加以下可选配置项（不填则使用默认值）：
-
-```env
-# Nearcade API 令牌（不填则使用默认token）
-NEARCADE_API_TOKEN=your_token_here
-
-# 排队等待时间提示语（可选，不填使用默认值）
-# 规则列表按 max_minutes 升序排列，匹配第一个 wait_time_avg <= max_minutes 的规则
-# max_minutes=0 表示无需等待时的提示
-COUNT_SMART_TIPS='[{"max_minutes": 0, "tip": "✅ 无需等待，快去出勤吧！"}, {"max_minutes": 20, "tip": "✅ 舞萌启动！"}, {"max_minutes": 40, "tip": "🕰️ 小排队还能忍"}, {"max_minutes": 90, "tip": "💀 DBD，纯折磨，建议换店"}, {"max_minutes": 9999, "tip": "🪦 建议回家（或者明天再来）"}]'
+```dotenv
+AWMC_DISABLED_PLUGINS='["arcade"]'
 ```
 
-## 🎉 使用
+**方式二：pip / PyPI**
 
-使用 `机厅帮助/arcade help` 指令获取指令表
+```bash
+pip install nonebot-plugin-awmc-arcade
+```
 
-### 指令表
+随后将 `"nonebot_plugin_awmc_arcade"` 加入 bot 的加载列表（本插件不依赖主插件也可独立运行）。
 
-| 人数指令 | 权限 | 需要@ | 范围 | 说明 |
-|:-----:|:----:|:----:|:----:|:----:|
-| <机厅名>++/-- | 群员 | 否 | 群聊 | 机厅的人数+1/-1 |
-| <机厅名>+num/-num | 群员 | 否 | 群聊 | +num/-num |
-| <机厅名>=num/<机厅名>num| 群员 | 否 | 群聊 | 机厅的人数重置为num |
-| <机厅名>几/几人/j | 群员 | 否 | 群聊 | 展示机厅当前的人数信息 |
-| mai/机厅人数 | 群员 | 否 | 群聊 | 展示当日已更新的所有机厅的人数列表 |
+## 配置
 
-| 机厅指令 | 权限 | 需要@ | 范围 | 说明 |
-|:-----:|:----:|:----:|:----:|:----:|
-| 添加群聊 | 管理 | 否 | 群聊 | 将群聊添加到JSON数据中 |
-| 删除群聊 | 管理 | 否 | 群聊 | 从JSON数据中删除指定的群聊 |
-| 添加机厅 | 管理 | 否 | 群聊 | 将机厅添加到群聊 |
-| 删除机厅 | 管理 | 否 | 群聊 | 从群聊中删除指定的机厅 |
-| 机厅列表 | 群员 | 否 | 群聊 | 展示当前机厅列表 |
-| 添加机厅别名 | 管理 | 否 | 群聊 | 为机厅添加别名 |
-| 删除机厅别名 | 管理 | 否 | 群聊 | 移除机厅的别名 |
-| 机厅别名 | 群员 | 否 | 群聊 | 展示机厅别名 |
-| 添加机厅地图 | 群员 | 否 | 群聊 | 添加机厅地图信息(网址) |
-| 删除机厅地图 | 管理 | 否 | 群聊 | 移除机厅地图信息 |
-| 机厅地图 | 群员 | 否 | 群聊 | 展示机厅音游地图列表 |
+| 配置项 | 默认 | 说明 |
+|---|---|---|
+| `awmc_arcade_nearcade_api_token` | 上游公开开发令牌 | Nearcade 开发者 API 令牌（人数上传） |
+| `awmc_arcade_smart_tips` | 5 档默认提示 | 等待时间提示规则（`max_minutes` 升序，`tip` 文案） |
+| `awmc_arcade_max_delta` | `50` | 单次人数变更上限（±，超过拒绝） |
+| `awmc_arcade_max_count` | `100` | 人数合法区间上限 |
+| `awmc_arcade_per_round_minutes` | `16` | 单轮游玩时长（分钟），等待时间估算基数 |
+| `awmc_arcade_nearby_radius_km` | `10` | 附近机厅发现半径（公里） |
+| `awmc_arcade_session_ttl` | `120` | 搜索选择/追问会话的存活秒数 |
 
-| 排卡指令 | 权限 | 需要@ | 范围 | 说明 |
-|:-----:|:----:|:----:|:----:|:----:|
-| 排卡 | 群员 | 否 | 群聊 | 加入排队队列 |
-| 上机 | 群员 | 否 | 群聊 | 将当前第一位排队的移至最后 |
-| 退勤 | 群员 | 否 | 群聊 | 从排队队列中退出 |
-| 排卡现状 | 群员 | 否 | 群聊 | 展示当前排队队列的情况 |
-| 延后 | 群员 | 否 | 群聊 | 将自己延后一位 |
-| 闭店 | 管理 | 否 | 群聊 | 清空排队队列 |
+```dotenv
+AWMC_ARCADE_NEARCADE_API_TOKEN=nk_xxxxxxxx
+```
 
-| 位置服务 | 权限 | 需要@ | 范围 | 说明 |
-|:-----:|:----:|:----:|:----:|:----:|
-| 发送位置 | 群员 | 否 | 群聊 | 自动获取附近机厅信息（基于Nearcade数据库） |
+## 指令
 
-| 云端同步 | 权限 | 需要@ | 范围 | 说明 |
-|:-----:|:----:|:----:|:----:|:----:|
-| 人数更新 | 群员 | 否 | 群聊 | 自动上传至Nearcade云端数据库 |
-| 机厅搜索 | 管理 | 否 | 群聊 | 添加机厅时自动搜索Nearcade数据库 |
+| 指令 | 权限 | 说明 |
+|---|---|---|
+| `机厅help` / `机厅帮助` | — | 完整指令说明 |
+| `添加群聊` / `删除群聊` | 管理 | 开通/关闭本群排卡功能 |
+| `静默监听模式` / `关闭静默监听模式` | SUPERUSER | 开关人数上报确认回复（持久化） |
+| `添加机厅 <店名>` | 管理 | Nearcade 搜索后按序号选择添加（回复 1-6） |
+| `删除机厅 <店名/序号>` | 管理 | 从本群移除机厅 |
+| `机厅列表` / `群机厅` | — | 本群机厅列表（序号索引依据） |
+| `添加机厅别名 <店名/序号> <别名>` | 管理 | 添加别名 |
+| `删除机厅别名 <店名/序号> <别名/序号>` | 管理 | 删除别名 |
+| `机厅别名 <店名/序号>` | — | 查看别名列表 |
+| `添加机厅地图 <店名/序号> <URL>` | 管理 | 添加音游地图网址 |
+| `删除机厅地图 <店名/序号> <URL/序号>` | 管理 | 删除地图网址 |
+| `机厅地图 <店名/序号>` | — | 查看地图网址列表 |
+| `<店名>++/--/+n/-n` | — | 人数增减（自动同步 Nearcade） |
+| `<店名>=n / <店名>n` | — | 人数重置为 n（显式设置，不向云端合并） |
+| `<店名>几/几人/j` | — | 查询人数与预计等待 |
+| `mai` / `机厅人数` / `jtj` / `机厅几人` | — | 当日已更新机厅列表 |
+| `排卡 <店名/序号>` | — | 加入排队队列 |
+| `上机` / `退勤` / `延后` | — | 队列轮转 / 退出 / 延后一位 |
+| `排卡现状 <店名/序号>` | — | 查看当前队列 |
+| `闭店 <店名/序号>` | 管理 | 清空该机厅队列 |
 
-**索引支持**：机厅名、别名、地图URL均可用序号代替 (使用 `机厅列表` 命令查看对应序号)  
-**示例**：`删除机厅别名 1 2` (删除第1个机厅的第2个别名)
+发送位置消息可发现附近机厅（Nearcade 数据，取最近 3 家）。
 
-### 效果图
+## 与上游的主要差异
+
+- **存储**：进程内 JSON 全局 dict → 独立 SQLite（localstore 数据目录 `awmc_arcade.db`），全异步读写；上游「重启丢静默配置」「并发写坏 JSON」两类问题随之消除；
+- **HTTP**：上报链路的同步 `http.client`（阻塞整个事件循环）→ 共享 `httpx.AsyncClient`；
+- **会话**：`got`/`pause` 与 `^[1-6]$` 全局正则（会吞掉群里所有单个数字消息）→ TTL 会话表 + priority=0 定向消费，会话超时自动失效；
+- **权限**：添加机厅地图补上上游缺失的管理员检查（帮助文案本就标注「管理」）；
+- **语义修正**：显式设置人数（`店名=5`）为绝对值；相对增减（`++/--`）保持上游「云端有他人上报时增量叠加」的合并语义；
+- **静默模式**：只吞人数上报确认，查询照常回答（上游静默时查询几乎无输出的行为比较费解）。
+
+## 截图
 
 <details>
-<summary>展开</summary>
+<summary><strong>📍 附近机厅</strong>：基于 Nearcade 数据库的位置服务，在群聊发送位置可发现附近机厅</summary>
 
-![image](https://github.com/YuuzukiRin/nonebot_plugin_mai_arcade/blob/main/docs/add_group_chat.png)
-![image](https://github.com/YuuzukiRin/nonebot_plugin_mai_arcade/blob/main/docs/arcade_number_reported.png)
-![image](https://github.com/YuuzukiRin/nonebot_plugin_mai_arcade/blob/main/docs/arcade_number_inquiry.png)
-![image](https://github.com/YuuzukiRin/nonebot_plugin_mai_arcade/blob/main/docs/add_alias_map.png)
-![image](https://github.com/YuuzukiRin/nonebot_plugin_mai_arcade/blob/main/docs/arcade_queue_card.png)
+![image](./docs/discover_nearby_arcades.png)
 
 </details>
 
-## ✨ 特别感谢
+<details>
+<summary><strong>⏰ 实时建议</strong>：查询机厅人数显示最新上报用户及上报时间，从 Nearcade 同步实时人数信息，同时根据人数和机台信息给出出勤建议</summary>
 
-- [Nearcade](https://nearcade.cn) 提供的优秀机厅数据平台和API支持
-- [Koileo](https://github.com/Koileo) 对项目Nearcade云同步功能及诸多模块的重要贡献和支持
-- [Adsicmes](https://github.com/Adsicmes) 对命令前缀问题的修复改进
-- [Yzfoil/nonebot_plugin_maimai_go_down_system](https://github.com/Yzfoil/nonebot_plugin_maimai_go_down_system) 提供的灵感与代码支持
+![image](./docs/live_suggestion.png)
 
-## 📄 许可证
+</details>
 
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
+<details>
+<summary><strong>🔎 添加机厅</strong>：添加时关键词搜索 Nearcade 收录的机厅，选择后自动挂店铺链接与地图</summary>
 
-## 🤝 贡献
+![image](./docs/search_add_arcades.png)
 
-欢迎提交 Issue 和 Pull Request！
+</details>
 
-1. Fork 本项目
-2. 创建你的特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交你的更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 提交 Pull Request
+## 许可证
 
----
-
-<div align="center">
-  <p>如果这个项目对你有帮助，请给它一个 ⭐ Star！</p>
-  <p>项目地址：<a href="https://github.com/YuuzukiRin/nonebot_plugin_mai_arcade">https://github.com/YuuzukiRin/nonebot_plugin_mai_arcade</a></p>
-</div>
+MIT（继承上游 © YuuzukiRin 与本仓修改）。
