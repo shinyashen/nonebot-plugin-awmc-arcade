@@ -271,9 +271,12 @@ async def _region_children(parent: str | None) -> list[dict]:
             pass
     items = await nearcade.region_children(parent)
     if items:
-        await store.set_meta(
-            key, json.dumps({"ts": now, "items": items}, ensure_ascii=False)
-        )
+        try:
+            await store.set_meta(
+                key, json.dumps({"ts": now, "items": items}, ensure_ascii=False)
+            )
+        except Exception:  # 缓存写失败只损失加速，不影响解析
+            logger.debug("地区树缓存写入失败", exc_info=True)
     return items
 
 
