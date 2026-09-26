@@ -971,6 +971,32 @@ async def _location_rule(state: T_State, event: MessageEvent) -> bool:
             lat, lng, name = coords
             state["_awmc_arcade_location"] = (lat, lng, name or "未知位置")
             return True
+    if "goo.gl" in plain or "google.com" in plain:
+        m = re.search(
+            r"https?://(?:maps\.app\.goo\.gl|goo\.gl|www\.google\.com/maps"
+            r"|maps\.google\.com)/\S+",
+            plain,
+        )
+        if m:
+            target = m.group(0)
+            if "goo.gl" in target:
+                target = await nearcade.resolve_redirect(target) or target
+            coords = service.coords_from_google_url(target)
+            if coords:
+                lat, lng, name = coords
+                state["_awmc_arcade_location"] = (lat, lng, name or "未知位置")
+                return True
+    if "map.baidu.com" in plain:
+        m = re.search(r"https?://(?:j\.map\.baidu\.com|map\.baidu\.com)/\S+", plain)
+        if m:
+            target = m.group(0)
+            if "j.map.baidu.com" in target:
+                target = await nearcade.resolve_redirect(target) or target
+            coords = service.coords_from_baidu_url(target)
+            if coords:
+                lat, lng, name = coords
+                state["_awmc_arcade_location"] = (lat, lng, name or "未知位置")
+                return True
     return False
 
 

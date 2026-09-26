@@ -6,6 +6,7 @@
 
 import re
 import json
+import math
 import time
 from datetime import datetime
 from dataclasses import dataclass
@@ -624,20 +625,39 @@ def coords_from_location_json(obj: dict) -> tuple[float, float, str | None] | No
 
 
 def coords_from_tuwen_card(obj: dict) -> tuple[float, float, str | None] | None:
-    """新版位置卡片（tuwen.lua 图文卡）：坐标在 news 跳转链接参数里。"""
+    """新版位置卡片（tuwen.lua 图文卡）：坐标在 news 跳转链接参数里。
+
+    跳转链接形态随来源不同（QQ 地图/高德/百度短链），逐个解析器尝试。
+    """
     meta = obj.get("meta")
     news = meta.get("news") if isinstance(meta, dict) else None
-    if not isinstance(news, list):
-        return None
-    for item in news:
-        jump = item.get("jumpUrl") if isinstance(item, dict) else None
-        url = jump.get("url") if isinstance(jump, dict) else None
-        if not url:
-            continue
-        coords = _coords_from_qq_poi_url(url)
+    urls: list[str] = []
+    if isinstance(news, list):
+        for item in news:
+            if not isinstance(item, dict):
+                continue
+            jump = item.get("jumpUrl")
+            if isinstance(jump, dict) and jump.get("url"):
+                urls.append(str(jump["url"]))
+            elif isinstance(item.get("url"), str):
+                urls.append(item["url"])
+    elif isinstance(news, dict):
+        jump = news.get("jumpUrl")
+        if isinstance(jump, str):
+            urls.append(jump)
+    for url in urls:
+        coords = _coords_from_url(url)
         if coords:
             return coords
     return None
+
+
+def _coords_from_url(url: str) -> tuple[float, float, str | None] | None:
+    return (
+        _coords_from_qq_poi_url(url)
+        or coords_from_google_url(url)
+        or coords_from_baidu_url(url)
+    )
 
 
 def _coords_from_qq_poi_url(url: str) -> tuple[float, float, str | None] | None:
@@ -690,6 +710,146 @@ async def coords_from_text(text: str) -> tuple[float, float, str | None] | None:
                 if lat and lng:
                     return lat, lng, fields[3]
     return None
+
+
+# ---- 地理坐标纠偏（百度 BD-09 / 谷歌 WGS-84 → 国测局 GCJ-02） ----
+# Nearcade 收录的国内店铺坐标为 GCJ-02 口径；百度分享是 BD-09、谷歌分享是
+# WGS-84，直接用会偏移数百米到一公里。公式为社区通用公开算法。
+
+
+def _out_of_china(lat: float, lng: float) -> bool:
+    return not (73.66 < lng < 135.05 and 3.86 < lat < 53.55)
+
+
+def wgs84_to_gcj02(lat: float, lng: float) -> tuple[float, float]:
+    """WGS-84 → GCJ-02（境外坐标原样返回）。"""
+    if _out_of_china(lat, lng):
+        return lat, lng
+    d_lat = _transform_lat(lng - 105.0, lat - 35.0)
+    d_lng = _transform_lng(lng - 105.0, lat - 35.0)
+    rad_lat = lat / 180.0 * math.pi
+    magic = 1 - 0.00669342162296594323 * math.sin(rad_lat) ** 2
+    sqrt_magic = math.sqrt(magic)
+    d_lat = (d_lat * 180.0) / (
+        (6378245.0 * (1 - 0.00669342162296594323)) / (magic * sqrt_magic) * math.pi
+    )
+    d_lng = (d_lng * 180.0) / (6378245.0 / sqrt_magic * math.cos(rad_lat) * math.pi)
+    return lat + d_lat, lng + d_lng
+
+
+def _transform_lat(lng: float, lat: float) -> float:
+    ret = (
+        -100.0
+        + 2.0 * lng
+        + 3.0 * lat
+        + 0.2 * lat * lat
+        + 0.1 * lng * lat
+        + 0.2 * math.sqrt(abs(lng))
+    )
+    ret += (
+        (20.0 * math.sin(6.0 * lng * math.pi) + 20.0 * math.sin(2.0 * lng * math.pi))
+        * 2.0
+        / 3.0
+    )
+    ret += (
+        (20.0 * math.sin(lat * math.pi) + 40.0 * math.sin(lat / 3.0 * math.pi))
+        * 2.0
+        / 3.0
+    )
+    ret += (
+        (160.0 * math.sin(lat / 12.0 * math.pi) + 320 * math.sin(lat * math.pi / 30.0))
+        * 2.0
+        / 3.0
+    )
+    return ret
+
+
+def _transform_lng(lng: float, lat: float) -> float:
+    ret = (
+        300.0
+        + lng
+        + 2.0 * lat
+        + 0.1 * lng * lng
+        + 0.1 * lng * lat
+        + 0.1 * math.sqrt(abs(lng))
+    )
+    ret += (
+        (20.0 * math.sin(6.0 * lng * math.pi) + 20.0 * math.sin(2.0 * lng * math.pi))
+        * 2.0
+        / 3.0
+    )
+    ret += (
+        (20.0 * math.sin(lng * math.pi) + 40.0 * math.sin(lng / 3.0 * math.pi))
+        * 2.0
+        / 3.0
+    )
+    ret += (
+        (
+            150.0 * math.sin(lng / 12.0 * math.pi)
+            + 300.0 * math.sin(lng / 30.0 * math.pi)
+        )
+        * 2.0
+        / 3.0
+    )
+    return ret
+
+
+def bd09_to_gcj02(lat: float, lng: float) -> tuple[float, float]:
+    """百度 BD-09 → GCJ-02。"""
+    x_lng = lng - 0.0065
+    y_lat = lat - 0.006
+    z = math.sqrt(x_lng * x_lng + y_lat * y_lat) - 0.00002 * math.sin(
+        y_lat * 3000.0 * math.pi / 180.0
+    )
+    theta = math.atan2(y_lat, x_lng) - 0.000003 * math.cos(
+        x_lng * 3000.0 * math.pi / 180.0
+    )
+    return z * math.sin(theta), z * math.cos(theta)
+
+
+def coords_from_google_url(url: str) -> tuple[float, float, str | None] | None:
+    """谷歌地图链接坐标（WGS-84，转 GCJ-02）。
+
+    支持三种落点形态：路径 @lat,lng、data 参数 !3dlat!4dlng、查询 q=lat,lng。
+    按地点名分享的链接（无坐标）返回 None，调用方走名称/地址文本搜索。
+    """
+    m = re.search(r"!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)", url)
+    if not m:
+        m = re.search(r"@(-?\d+\.\d+),(-?\d+\.\d+)", url)
+    if m:
+        lat, lng = float(m.group(1)), float(m.group(2))
+    else:
+        from urllib.parse import parse_qs, urlparse
+
+        query = parse_qs(urlparse(url).query)
+        q = (query.get("q") or [""])[0]
+        m2 = re.match(r"(-?\d+\.\d+),(-?\d+\.\d+)$", q.strip())
+        if not m2:
+            return None
+        lat, lng = float(m2.group(1)), float(m2.group(2))
+    if not _out_of_china(lat, lng):
+        lat, lng = wgs84_to_gcj02(lat, lng)
+    return lat, lng, None
+
+
+def coords_from_baidu_url(url: str) -> tuple[float, float, str | None] | None:
+    """百度地图 marker 链接 location=lat,lng（BD-09，转 GCJ-02）。"""
+    from urllib.parse import parse_qs, urlparse
+
+    query = parse_qs(urlparse(url).query)
+    location = (query.get("location") or [""])[0]
+    parts = location.split(",")
+    if len(parts) < 2:
+        return None
+    try:
+        lat, lng = float(parts[0]), float(parts[1])
+    except ValueError:
+        return None
+    if not (lat and lng):
+        return None
+    lat, lng = bd09_to_gcj02(lat, lng)
+    name = (query.get("title") or [None])[0]
+    return lat, lng, name
 
 
 # ---- 每日清零 ----

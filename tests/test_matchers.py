@@ -410,93 +410,121 @@ async def test_ask_session_consumes_next_message(app: App):
 
 
 async def test_location_variants(app: App, monkeypatch):
-    """位置消息四种实测形态：旧版卡片/新版图文卡/高德短链/QQ地图链接。
-
-    以 discover 收到的经纬度为断言点（解析函数本身由纯逻辑保证）。
-    """
+    """位置消息五种实测形态 + 无坐标形态静默忽略。"""
     import json
     from urllib.parse import quote
 
-    import nonebot
     import respx
-    from httpx import Response
-    from nonebot.adapters.onebot.v11 import Adapter as OnebotV11Adapter
-    from nonebot.adapters.onebot.v11 import Bot, Message, MessageSegment
+    import nonebot
     from fake import fake_group_message_event_v11
+    from httpx import Response
+    from nonebot.adapters.onebot.v11 import Bot, Message, MessageSegment
+    from nonebot.adapters.onebot.v11 import Adapter as OnebotV11Adapter
 
-    from nonebot_plugin_awmc_arcade import location_listener
+    from nonebot_plugin_awmc_arcade import service, location_listener
 
-    tuwen_card = json.dumps(
-        {
+    def _classic_card() -> Message:
+        return Message(
+            [
+                MessageSegment.json(
+                    json.dumps(
+                        {
+                            "meta": {
+                                "Location.Search": {
+                                    "lat": 31.960199,
+                                    "lng": 118.732845,
+                                    "name": "南京雨花万象天地",
+                                }
+                            }
+                        }
+                    )
+                )
+            ]
+        )
+
+    def _tuwen_qq_card() -> Message:
+        card = {
             "app": "com.tencent.tuwen.lua",
             "meta": {
                 "news": [
                     {
                         "title": "南京雨花万象天地",
                         "jumpUrl": {
-                            "url": "https://map.wap.qq.com/online/h5-poi-detail-out/index.html"
-                            "?uid=1&coord=118.732845%2C31.960199"
-                            "&n=%E5%8D%97%E4%BA%AC%E9%9B%A8%E8%8A%B1%E4%B8%87%E8%B1%A1%E5%A4%A9%E5%9C%B0"
+                            "url": "https://map.wap.qq.com/online"
+                            "/h5-poi-detail-out/index.html?coord=118.732845"
+                            "%2C31.960199&n=%E5%8D%97%E4%BA%AC%E9%9B%A8%E8%8A%B1"
+                            "%E4%B8%87%E8%B1%A1%E5%A4%A9%E5%9C%B0"
                         },
                     }
                 ]
             },
         }
+        return Message([MessageSegment.json(json.dumps(card))])
+
+    gl_short = "https://maps.app.goo.gl/mtf6BjL2J6fw32Wm6?g_st=ac"
+    gl_pin_target = (
+        "https://www.google.com/maps/place/31.960625,118.736397/data="
+        "!4m6!3m5!1s0!8m2!3d31.960625399999998!4d118.73639709999999!18m1!1e1"
     )
-    amap_short = "https://surl.amap.com/2kfnweW585X"
-    amap_location = (
-        "https://wb.amap.com/?p=B0KU7A3X8U%2C31.960541%2C118.732649"
-        "%2C%E5%8D%97%E4%BA%AC%E9%9B%A8%E8%8A%B1%E4%B8%87%E8%B1%A1%E5%A4%A9%E5%9C%B0"
-        "%2C%E5%90%91%E7%A7%80%E8%B7%AF1%E5%8F%B7"
-    )
-    qq_poi = (
-        "https://map.wap.qq.com/online/h5-poi-detail-out/index.html"
-        "?coord=118.732845%2C31.960199&n=%E5%8D%97%E4%BA%AC%E9%9B%A8%E8%8A%B1%E4%B8%87%E8%B1%A1%E5%A4%A9%E5%9C%B0"
-    )
-    variants = {
-        "旧版卡片": (
-            Message(
-                [
-                    MessageSegment.json(
-                        json.dumps(
-                            {
-                                "meta": {
-                                    "Location.Search": {
-                                        "lat": 31.960199,
-                                        "lng": 118.732845,
-                                        "name": "南京雨花万象天地",
-                                    }
-                                }
-                            }
-                        )
-                    )
-                ]
-            ),
+    gl_glat, gl_glng = service.wgs84_to_gcj02(31.960625399999998, 118.73639709999999)
+    bd_marker = "https://map.baidu.com/marker?location=31.9666%2C118.7390&title=%E6%B5%8B%E8%AF%95%E5%BA%97"
+    bd_glat, bd_glng = service.bd09_to_gcj02(31.9666, 118.7390)
+
+    # (说明, 消息, mock 短链, mock 跳转目标, 期望纬度, 期望经度, 期望地点名)
+    variants = [
+        (
+            "旧版卡片",
+            _classic_card(),
+            None,
+            None,
             31.960199,
             118.732845,
             "南京雨花万象天地",
         ),
-        "新版图文卡": (
-            Message([MessageSegment.json(tuwen_card)]),
+        (
+            "新版图文卡",
+            _tuwen_qq_card(),
+            None,
+            None,
             31.960199,
             118.732845,
             "南京雨花万象天地",
         ),
-        "高德短链文本": (
-            Message(f"南京雨花万象天地\n{amap_short}"),
+        (
+            "高德短链文本",
+            Message("南京雨花万象天地\nhttps://surl.amap.com/2kfnweW585X"),
+            "https://surl.amap.com/2kfnweW585X",
+            "https://wb.amap.com/?p=B0KU7A3X8U%2C31.960541%2C118.732649"
+            "%2C%E5%8D%97%E4%BA%AC%E9%9B%A8%E8%8A%B1%E4%B8%87%E8%B1%A1%E5%A4%A9%E5%9C%B0",
             31.960541,
             118.732649,
             "南京雨花万象天地",
         ),
-        "QQ地图链接文本": (
-            Message(qq_poi),
+        (
+            "QQ地图链接文本",
+            Message(
+                "https://map.wap.qq.com/online/h5-poi-detail-out/index.html"
+                "?coord=118.732845%2C31.960199"
+                "&n=%E5%8D%97%E4%BA%AC%E9%9B%A8%E8%8A%B1%E4%B8%87%E8%B1%A1%E5%A4%A9%E5%9C%B0"
+            ),
+            None,
+            None,
             31.960199,
             118.732845,
             "南京雨花万象天地",
         ),
-    }
-    for shape, (message, lat, lng, name) in variants.items():
-        print("VARIANT:", shape)
+        (
+            "谷歌图钉",
+            Message(gl_short),
+            gl_short,
+            gl_pin_target,
+            gl_glat,
+            gl_glng,
+            "未知位置",
+        ),
+        ("百度marker链接", Message(bd_marker), None, None, bd_glat, bd_glng, "测试店"),
+    ]
+    for shape, message, mock_url, mock_target, lat, lng, name in variants:
         event = fake_group_message_event_v11(message=message, raw_message=str(message))
         with respx.mock:
             discover = respx.get(f"{BASE}/api/discover").mock(
@@ -513,9 +541,9 @@ async def test_location_variants(app: App, monkeypatch):
                     },
                 )
             )
-            if shape == "高德短链文本":
-                respx.get(amap_short).mock(
-                    return_value=Response(302, headers={"location": amap_location})
+            if mock_url:
+                respx.get(mock_url).mock(
+                    return_value=Response(302, headers={"location": mock_target})
                 )
             expected_reply = (
                 f"🎮 A店（500米）\n📍 路1\n\n👉 更多详情请点开："
@@ -532,3 +560,33 @@ async def test_location_variants(app: App, monkeypatch):
             assert params["latitude"] == str(lat), shape
             assert params["longitude"] == str(lng), shape
             assert params["name"] == name, shape
+
+
+async def test_google_place_share_without_coords_ignored(app: App):
+    """按地点名分享的谷歌短链（无坐标）：静默忽略。"""
+    import respx
+    import nonebot
+    from httpx import Response
+    from nonebot.adapters.onebot.v11 import Bot
+    from nonebot.adapters.onebot.v11 import Adapter as OnebotV11Adapter
+
+    from nonebot_plugin_awmc_arcade import location_listener
+
+    event = _event("https://maps.app.goo.gl/4T5EXqjprC6g8AJL9")
+    with respx.mock:
+        respx.get("https://maps.app.goo.gl/4T5EXqjprC6g8AJL9").mock(
+            return_value=Response(
+                302,
+                headers={
+                    "location": "https://www.google.com/maps/place"
+                    "/%E6%B1%9F%E8%8B%8F%E7%9C%81%E5%8D%97%E4%BA%AC%E5%B8%82"
+                    "%E9%9B%A8%E8%8A%B1%E5%8F%B0%E5%8C%BA%E5%A5%BD%E5%8F%88%E5%A4%9A"
+                    "%E8%B6%85%E5%B8%82/data=!4m2!3m1!1s0x35b5"
+                },
+            )
+        )
+        async with app.test_matcher(location_listener) as ctx:
+            bot = ctx.create_bot(
+                base=Bot, adapter=nonebot.get_adapter(OnebotV11Adapter)
+            )
+            ctx.receive_event(bot, event)
