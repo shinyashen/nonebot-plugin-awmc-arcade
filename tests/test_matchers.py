@@ -407,3 +407,128 @@ async def test_ask_session_consumes_next_message(app: App):
         "已从群聊名单中删除机厅：测试店",
     )
     await _no_reply(app, session_consumer, _event("测试店"))
+
+
+async def test_location_variants(app: App, monkeypatch):
+    """位置消息四种实测形态：旧版卡片/新版图文卡/高德短链/QQ地图链接。
+
+    以 discover 收到的经纬度为断言点（解析函数本身由纯逻辑保证）。
+    """
+    import json
+    from urllib.parse import quote
+
+    import nonebot
+    import respx
+    from httpx import Response
+    from nonebot.adapters.onebot.v11 import Adapter as OnebotV11Adapter
+    from nonebot.adapters.onebot.v11 import Bot, Message, MessageSegment
+    from fake import fake_group_message_event_v11
+
+    from nonebot_plugin_awmc_arcade import location_listener
+
+    tuwen_card = json.dumps(
+        {
+            "app": "com.tencent.tuwen.lua",
+            "meta": {
+                "news": [
+                    {
+                        "title": "南京雨花万象天地",
+                        "jumpUrl": {
+                            "url": "https://map.wap.qq.com/online/h5-poi-detail-out/index.html"
+                            "?uid=1&coord=118.732845%2C31.960199"
+                            "&n=%E5%8D%97%E4%BA%AC%E9%9B%A8%E8%8A%B1%E4%B8%87%E8%B1%A1%E5%A4%A9%E5%9C%B0"
+                        },
+                    }
+                ]
+            },
+        }
+    )
+    amap_short = "https://surl.amap.com/2kfnweW585X"
+    amap_location = (
+        "https://wb.amap.com/?p=B0KU7A3X8U%2C31.960541%2C118.732649"
+        "%2C%E5%8D%97%E4%BA%AC%E9%9B%A8%E8%8A%B1%E4%B8%87%E8%B1%A1%E5%A4%A9%E5%9C%B0"
+        "%2C%E5%90%91%E7%A7%80%E8%B7%AF1%E5%8F%B7"
+    )
+    qq_poi = (
+        "https://map.wap.qq.com/online/h5-poi-detail-out/index.html"
+        "?coord=118.732845%2C31.960199&n=%E5%8D%97%E4%BA%AC%E9%9B%A8%E8%8A%B1%E4%B8%87%E8%B1%A1%E5%A4%A9%E5%9C%B0"
+    )
+    variants = {
+        "旧版卡片": (
+            Message(
+                [
+                    MessageSegment.json(
+                        json.dumps(
+                            {
+                                "meta": {
+                                    "Location.Search": {
+                                        "lat": 31.960199,
+                                        "lng": 118.732845,
+                                        "name": "南京雨花万象天地",
+                                    }
+                                }
+                            }
+                        )
+                    )
+                ]
+            ),
+            31.960199,
+            118.732845,
+            "南京雨花万象天地",
+        ),
+        "新版图文卡": (
+            Message([MessageSegment.json(tuwen_card)]),
+            31.960199,
+            118.732845,
+            "南京雨花万象天地",
+        ),
+        "高德短链文本": (
+            Message(f"南京雨花万象天地\n{amap_short}"),
+            31.960541,
+            118.732649,
+            "南京雨花万象天地",
+        ),
+        "QQ地图链接文本": (
+            Message(qq_poi),
+            31.960199,
+            118.732845,
+            "南京雨花万象天地",
+        ),
+    }
+    for shape, (message, lat, lng, name) in variants.items():
+        print("VARIANT:", shape)
+        event = fake_group_message_event_v11(message=message, raw_message=str(message))
+        with respx.mock:
+            discover = respx.get(f"{BASE}/api/discover").mock(
+                return_value=Response(
+                    200,
+                    json={
+                        "shops": [
+                            {
+                                "name": "A店",
+                                "distance": 0.5,
+                                "address": {"detailed": "路1"},
+                            }
+                        ]
+                    },
+                )
+            )
+            if shape == "高德短链文本":
+                respx.get(amap_short).mock(
+                    return_value=Response(302, headers={"location": amap_location})
+                )
+            expected_reply = (
+                f"🎮 A店（500米）\n📍 路1\n\n👉 更多详情请点开："
+                f"{BASE}/discover?latitude={lat}&longitude={lng}"
+                f"&radius=10&name={quote(name)}"
+            )
+            async with app.test_matcher(location_listener) as ctx:
+                bot = ctx.create_bot(
+                    base=Bot, adapter=nonebot.get_adapter(OnebotV11Adapter)
+                )
+                ctx.should_call_send(event, expected_reply, result=None, bot=bot)
+                ctx.receive_event(bot, event)
+            params = discover.calls.last.request.url.params
+            assert params["latitude"] == str(lat), shape
+            assert params["longitude"] == str(lng), shape
+            assert params["name"] == name, shape

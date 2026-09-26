@@ -139,3 +139,13 @@ async def region_children(parent_id: str | None = None) -> list[dict]:
     except Exception as e:
         logger.warning(f"Nearcade 地区树获取失败（{parent_id}）：{e}")
         return []
+
+
+async def resolve_redirect(url: str) -> str | None:
+    """解析 302 跳转目标（高德短链还原坐标用），失败返回 None。"""
+    try:
+        resp = await _http().get(url, follow_redirects=False)
+        return resp.headers.get("location")
+    except Exception as e:
+        logger.warning(f"短链跳转解析失败（{url}）：{e}")
+        return None

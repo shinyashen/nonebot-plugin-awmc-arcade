@@ -599,6 +599,99 @@ def discover_reply(data: dict, web_url: str) -> str | None:
     return "\n\n".join(lines) + f"\n\n👉 更多详情请点开：{web_url}"
 
 
+# ---- 位置消息解析（附近机厅） ----
+#
+# LLBot/QQNT 实测（2026-09-27）位置分享有四种形态，坐标位置各不相同：
+# - 旧版位置卡片：json 段 meta.Location.Search.lat/lng
+# - 新版位置卡片：json 段 app=com.tencent.tuwen.lua，坐标藏在
+#   meta.news[].jumpUrl.url 的 coord=lng,lat（另有 n=地点名）
+# - 高德分享：纯文本 surl.amap.com 短链，302 到
+#   wb.amap.com/?p=<poiid>,<lat>,<lng>,<名称>,<地址>
+# - QQ 地图链接：纯文本 map.wap.qq.com/h5-poi-detail…coord=lng,lat
+
+
+def coords_from_location_json(obj: dict) -> tuple[float, float, str | None] | None:
+    """旧版位置卡片：meta.Location.Search.lat/lng。"""
+    location = obj.get("meta", {}).get("Location.Search", {})
+    try:
+        lat = float(location.get("lat", 0))
+        lng = float(location.get("lng", 0))
+    except (TypeError, ValueError):
+        return None
+    if lat and lng:
+        return lat, lng, location.get("name") or None
+    return None
+
+
+def coords_from_tuwen_card(obj: dict) -> tuple[float, float, str | None] | None:
+    """新版位置卡片（tuwen.lua 图文卡）：坐标在 news 跳转链接参数里。"""
+    meta = obj.get("meta")
+    news = meta.get("news") if isinstance(meta, dict) else None
+    if not isinstance(news, list):
+        return None
+    for item in news:
+        jump = item.get("jumpUrl") if isinstance(item, dict) else None
+        url = jump.get("url") if isinstance(jump, dict) else None
+        if not url:
+            continue
+        coords = _coords_from_qq_poi_url(url)
+        if coords:
+            return coords
+    return None
+
+
+def _coords_from_qq_poi_url(url: str) -> tuple[float, float, str | None] | None:
+    """QQ 地图 poi 链接：coord=lng,lat（经度在前），n=地点名。"""
+    from urllib.parse import parse_qs, urlparse
+
+    query = parse_qs(urlparse(url).query)
+    coord = next(
+        (q[0] for q in (query.get(k) for k in ("coord", "centercoord", "m", "c")) if q),
+        "",
+    )
+    parts = coord.split(",")
+    if len(parts) < 2:
+        return None
+    try:
+        lng, lat = float(parts[0]), float(parts[1])
+    except ValueError:
+        return None
+    if not (lat and lng):
+        return None
+    name = (query.get("n") or [None])[0]
+    return lat, lng, name
+
+
+async def coords_from_text(text: str) -> tuple[float, float, str | None] | None:
+    """纯文本形态：QQ 地图链接直接取参；高德短链跟随 302 还原。
+
+    ``text`` 传入**未转义**的纯文本（如 OB11 ``extract_plain_text()``）；
+    这里再兜底反转义一次 CQ/html 转义，防止 raw_message 口径带入 &amp;。
+    """
+    text = text.replace("&amp;", "&").replace("&#38;", "&")
+    m = re.search(r"https?://map\.wap\.qq\.com/\S+", text)
+    if m:
+        coords = _coords_from_qq_poi_url(m.group(0))
+        if coords:
+            return coords
+    m = re.search(r"https?://surl\.amap\.com/\S+", text)
+    if m:
+        location = await nearcade.resolve_redirect(m.group(0))
+        if location:
+            from urllib.parse import parse_qs, urlparse
+
+            query = parse_qs(urlparse(location).query)
+            fields = (query.get("p") or [""])[0].split(",")
+            if len(fields) >= 4:
+                try:
+                    lat, lng = float(fields[1]), float(fields[2])
+                except ValueError:
+                    return None
+                if lat and lng:
+                    return lat, lng, fields[3]
+    return None
+
+
 # ---- 每日清零 ----
 
 _RESET_MARK = "last_reset_date"

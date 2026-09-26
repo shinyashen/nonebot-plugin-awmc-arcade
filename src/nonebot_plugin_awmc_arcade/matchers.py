@@ -928,25 +928,48 @@ async def _(
 
 
 async def _location_rule(state: T_State, event: MessageEvent) -> bool:
-    """位置分享消息门禁：解析 CQ json 里的经纬度挂 state。"""
+    """位置分享门禁：四种实测形态都能提取坐标（详见 service 位置解析注记）。
+
+    依次尝试：OB11 标准 location 段 → json 段（旧版 Location.Search 卡片 /
+    新版 tuwen.lua 图文卡）→ 纯文本里的高德短链与 QQ 地图链接（短链需
+    跟随 302，仅当文本含相关域名才发起请求）。
+    """
     if not isinstance(event, GroupMessageEvent):
         return False
     for seg in event.message:
+        if seg.type == "location":
+            data = seg.data or {}
+            try:
+                lat = float(data.get("lat", 0))
+                lng = float(data.get("lon", 0) or data.get("lng", 0))
+            except (TypeError, ValueError):
+                continue
+            if lat and lng:
+                state["_awmc_arcade_location"] = (
+                    lat,
+                    lng,
+                    data.get("title") or "未知位置",
+                )
+                return True
         if seg.type != "json":
             continue
         try:
-            cq = json.loads(seg.data["data"])
-            location = cq.get("meta", {}).get("Location.Search", {})
-            lat = float(location.get("lat", 0))
-            lon = float(location.get("lng", 0))
+            obj = json.loads(seg.data["data"])
         except Exception:
             continue
-        if lat and lon:
-            state["_awmc_arcade_location"] = (
-                lat,
-                lon,
-                location.get("name") or "未知位置",
-            )
+        coords = service.coords_from_location_json(
+            obj
+        ) or service.coords_from_tuwen_card(obj)
+        if coords:
+            lat, lng, name = coords
+            state["_awmc_arcade_location"] = (lat, lng, name or "未知位置")
+            return True
+    plain = event.message.extract_plain_text()
+    if "amap.com" in plain or "map.wap.qq.com" in plain:
+        coords = await service.coords_from_text(plain)
+        if coords:
+            lat, lng, name = coords
+            state["_awmc_arcade_location"] = (lat, lng, name or "未知位置")
             return True
     return False
 
