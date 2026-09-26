@@ -13,21 +13,29 @@ service/store/nearcade。消息文案与上游 mai_arcade 保持一致（个别�
 - 排卡：上机 / 排卡 / 退勤 / 排卡现状 / 延后 / 闭店（管理员）
 - 位置监听：群内发送位置消息发现附近机厅
 
+私聊扩权（上游没有的能力）：SUPERUSER 或目标群管理员可在私聊执行上述
+管理/查询类指令，目标群经「管理群 <群号>」上下文或指令前导群号指定，
+身份经 get_group_member_info 直查校验——详见 :func:`_target_group`。
+人数上报、排卡操作与位置监听保持仅群聊（排队/上报者是群成员本人，
+私聊无语义）。
+
 会话型交互（搜索选择 1-6、指令缺参追问）走 TTL 会话表，由 priority=0 的
 ``session_consumer`` 统一消费，不用 ``got``（awmc 生态约定）。
 """
 
+import re
 import json
-from functools import wraps
+import time
 
 from nonebot import logger, on_command, on_message, on_fullmatch
 from nonebot.params import CommandArg
 from nonebot.typing import T_State
-from nonebot.adapters import Bot, Event
-from nonebot.exception import MatcherException
+from nonebot.adapters import Bot
 from nonebot.permission import SUPERUSER
 from nonebot.adapters.onebot.v11 import Message, MessageEvent, GroupMessageEvent
+from nonebot_plugin_awmc_helper.core.utils import handle_errors
 from nonebot.adapters.onebot.v11.permission import GROUP_ADMIN, GROUP_OWNER
+from nonebot_plugin_awmc_helper.core.forward import try_send_forward
 
 from . import service, session, nearcade
 from .store import ArcadeEntry, store
@@ -36,6 +44,8 @@ from .config import plugin_config
 # ---- 私有小辅助 ----
 
 _NOT_OPEN = "本群尚未开通排卡功能,请联系群主或管理员添加群聊"
+_NO_TARGET = "请先用 管理群 <群号> 设置管理目标，或在指令开头带上群号"
+_QUERY_DENY = "权限不足：仅该群管理员可查询"
 
 
 async def _is_admin(bot: Bot, event: GroupMessageEvent) -> bool:
@@ -43,38 +53,100 @@ async def _is_admin(bot: Bot, event: GroupMessageEvent) -> bool:
     return await (SUPERUSER | GROUP_ADMIN | GROUP_OWNER)(bot, event)
 
 
-def handle_errors(fallback: str = "出错了，请稍后再试或联系管理员。"):
-    """统一异常兜底（对齐主插件 core.utils 同名约定；第三方插件不能
-    import 主插件 core，本地复刻）。MatcherException 是 matcher 控制流程
-    （finish 等）必须原样透传；DI 按关键字传参，bot/event 从 kwargs 取。
+def _scope(event: MessageEvent) -> int:
+    """会话表的键维度：群聊=群号，私聊统一 0（目标群另存 payload）。"""
+    return event.group_id if isinstance(event, GroupMessageEvent) else 0
+
+
+async def _is_target_admin(bot: Bot, group_id: int, user_id: str) -> str | None:
+    """私聊扩权的身份校验：SUPERUSER 直通，否则直查目标群成员角色。
+
+    ``get_group_member_info`` 结果缓存 300 秒（设置期连续操作免反复拉取）；
+    返回 None 表示通过，否则为拒绝文案（bot 不在该群等 API 失败一并归入）。
     """
+    if str(user_id) in bot.config.superusers:
+        return None
+    key = (group_id, str(user_id))
+    now = time.monotonic()
+    if cached := _admin_cache.get(key):
+        if cached[1] > now:
+            return None if cached[0] else _DENY_MANAGE
+        del _admin_cache[key]
+    try:
+        info = await bot.call_api(
+            "get_group_member_info",
+            group_id=group_id,
+            user_id=int(user_id),
+            no_cache=True,
+        )
+        ok = info.get("role") in ("admin", "owner")
+    except Exception:
+        logger.warning(f"目标群管理员校验失败（群 {group_id}）", exc_info=True)
+        return "身份校验失败：bot 可能不在该群"
+    _admin_cache[key] = (ok, now + _ADMIN_CACHE_TTL)
+    return None if ok else _DENY_MANAGE
 
-    def decorator(func):
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            try:
-                return await func(*args, **kwargs)
-            except MatcherException:
-                raise
-            except Exception:
-                logger.exception("awmc-arcade 处理指令时出现未捕获异常")
-                bot: Bot | None = kwargs.get("bot")
-                event: Event | None = kwargs.get("event")
-                if bot is not None and event is not None:
-                    try:
-                        await bot.send(event, fallback)
-                    except Exception:  # 兜底发送本身失败则仅留日志
-                        logger.warning("awmc-arcade 错误提示发送失败")
 
-        return wrapper
+_ADMIN_CACHE_TTL = 300.0  # 管理员角色缓存秒数
+_admin_cache: dict[tuple[int, str], tuple[bool, float]] = {}
+_DENY_MANAGE = "权限不足：你不是该群的管理员"
 
-    return decorator
+# 私聊指令的可选前导群号：≥4 位与机厅序号参数（1-2 位）天然区分
+_GROUP_PREFIX = re.compile(r"^(\d{4,})(?:\s+(.*))?$", re.DOTALL)
+
+
+def _extract_target(args_text: str) -> tuple[int | None, str]:
+    """剥离私聊指令的前导群号，返回 (群号或 None, 其余参数)。"""
+    m = _GROUP_PREFIX.match(args_text.strip())
+    if m:
+        return int(m.group(1)), (m.group(2) or "").strip()
+    return None, args_text.strip()
+
+
+async def _target_group(
+    bot: Bot,
+    event: MessageEvent,
+    args_text: str,
+    *,
+    open_required: bool,
+    group_admin_required: bool,
+    deny: str = "只有管理员能够操作",
+    private_admin_required: bool = True,
+) -> tuple[int, str, int] | str:
+    """群管理类指令的目标群统一解析与门禁。
+
+    返回 (目标群号, 参数文本, 会话 scope)；校验失败返回错误文案。
+    - 群聊：目标=当前群、原文即参数；按需校验开通态与群身份
+      （先开通后权限，与上游次序一致）；
+    - 私聊：前导群号 > 管理群 上下文；身份校验 SUPERUSER 直通，否则
+      经 get_group_member_info 直查目标群角色。
+    """
+    if isinstance(event, GroupMessageEvent):
+        gid = event.group_id
+        if open_required and await store.get_group(gid) is None:
+            return _NOT_OPEN
+        if group_admin_required and not await _is_admin(bot, event):
+            return deny
+        return gid, args_text.strip(), gid
+    uid = event.get_user_id()
+    target, rest = _extract_target(args_text)
+    if target is None:
+        target = session.get_manage_group(uid)
+        if target is None:
+            return _NO_TARGET
+    if private_admin_required:
+        if err := await _is_target_admin(bot, target, uid):
+            return err
+    if open_required and await store.get_group(target) is None:
+        return _NOT_OPEN
+    return target, rest, 0
 
 
 # ---- 群管理 ----
 
 add_group = on_command("添加群聊", priority=10, block=True)
 delete_group = on_command("删除群聊", priority=10, block=True)
+manage_group_cmd = on_command("管理群", priority=10, block=True)
 silent_on = on_command(
     "静默监听模式",
     aliases={"静默模式", "监听模式"},
@@ -93,36 +165,104 @@ silent_off = on_command(
 
 @add_group.handle()
 @handle_errors()
-async def _(bot: Bot, event: GroupMessageEvent):
-    if not await _is_admin(bot, event):
-        await add_group.finish("只有管理员能够添加群聊")
-    if await store.add_group(event.group_id):
+async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
+    ctx = await _target_group(
+        bot,
+        event,
+        str(args).strip(),
+        open_required=False,
+        group_admin_required=True,
+        deny="只有管理员能够添加群聊",
+    )
+    if isinstance(ctx, str):
+        await add_group.finish(ctx)
+    gid = ctx[0]
+    if await store.add_group(gid):
         await add_group.finish("已添加当前群聊到名单中")
     await add_group.finish("当前群聊已在名单中")
 
 
 @delete_group.handle()
 @handle_errors()
-async def _(bot: Bot, event: GroupMessageEvent):
-    if not await _is_admin(bot, event):
-        await delete_group.finish("只有管理员能够删除群聊")
-    if await store.remove_group(event.group_id):
+async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
+    ctx = await _target_group(
+        bot,
+        event,
+        str(args).strip(),
+        open_required=False,
+        group_admin_required=True,
+        deny="只有管理员能够删除群聊",
+    )
+    if isinstance(ctx, str):
+        await delete_group.finish(ctx)
+    gid = ctx[0]
+    if await store.remove_group(gid):
         await delete_group.finish("已从名单中删除当前群聊")
     await delete_group.finish("当前群聊不在名单中，无法删除")
 
 
+@manage_group_cmd.handle()
+@handle_errors()
+async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
+    if isinstance(event, GroupMessageEvent):
+        await manage_group_cmd.finish(
+            "管理群 仅私聊可用：私聊 bot 后发送 管理群 <群号>"
+        )
+    uid = event.get_user_id()
+    text = str(args).strip()
+    if not text:
+        current = session.get_manage_group(uid)
+        await manage_group_cmd.finish(
+            f"当前管理目标：{current} 群"
+            if current
+            else "尚未设置管理目标：发送 管理群 <群号>"
+        )
+    if text in ("取消", "清除", "删除"):
+        if session.clear_manage_group(uid):
+            await manage_group_cmd.finish("已清除管理目标")
+        await manage_group_cmd.finish("当前没有管理目标")
+    if not text.isdigit():
+        await manage_group_cmd.finish("格式：管理群 <群号>")
+    ttl = plugin_config.awmc_arcade_manage_ttl
+    session.set_manage_group(uid, int(text), ttl)
+    await manage_group_cmd.finish(
+        f"已将管理目标设为 {text} 群（{ttl // 60} 分钟内私聊指令默认作用于该群）"
+    )
+
+
 @silent_on.handle()
 @handle_errors()
-async def _(event: GroupMessageEvent):
-    if await store.set_silent(event.group_id, True):
+async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
+    # matcher 已有 SUPERUSER 门禁：目标群解析无需再验身份
+    ctx = await _target_group(
+        bot,
+        event,
+        str(args).strip(),
+        open_required=True,
+        group_admin_required=False,
+        private_admin_required=False,
+    )
+    if isinstance(ctx, str):
+        await silent_on.finish(ctx)
+    if await store.set_silent(ctx[0], True):
         await silent_on.finish("已开启静默监听模式：人数上报不再回复，仅同步云端")
     await silent_on.finish(_NOT_OPEN)
 
 
 @silent_off.handle()
 @handle_errors()
-async def _(event: GroupMessageEvent):
-    if await store.set_silent(event.group_id, False):
+async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
+    ctx = await _target_group(
+        bot,
+        event,
+        str(args).strip(),
+        open_required=True,
+        group_admin_required=False,
+        private_admin_required=False,
+    )
+    if isinstance(ctx, str):
+        await silent_off.finish(ctx)
+    if await store.set_silent(ctx[0], False):
         await silent_off.finish("已关闭静默监听模式，恢复正常回复")
     await silent_off.finish(_NOT_OPEN)
 
@@ -141,24 +281,31 @@ updated_list = on_fullmatch(
 @handle_errors()
 async def _(
     bot: Bot,
-    event: GroupMessageEvent,
+    event: MessageEvent,
     args: Message = CommandArg(),
 ):
-    if await store.get_group(event.group_id) is None:
-        await add_arcade.finish(_NOT_OPEN)
-    if not await _is_admin(bot, event):
-        await add_arcade.finish("只有管理员能够添加机厅")
-    name = str(args).strip()
+    ctx = await _target_group(
+        bot,
+        event,
+        str(args).strip(),
+        open_required=True,
+        group_admin_required=True,
+        deny="只有管理员能够添加机厅",
+    )
+    if isinstance(ctx, str):
+        await add_arcade.finish(ctx)
+    gid, name, scope = ctx
     if not name:
         session.start(
             session.KIND_ASK,
-            event.group_id,
+            scope,
             event.get_user_id(),
             topic=session.TOPIC_ADD,
+            payload={"group_id": gid},
         )
         await add_arcade.finish("请输入机厅名称：")
     await add_arcade.finish(
-        await service.begin_add_arcade(event.group_id, event.get_user_id(), name)
+        await service.begin_add_arcade(scope, gid, event.get_user_id(), name)
     )
 
 
@@ -166,31 +313,46 @@ async def _(
 @handle_errors()
 async def _(
     bot: Bot,
-    event: GroupMessageEvent,
+    event: MessageEvent,
     args: Message = CommandArg(),
 ):
-    if await store.get_group(event.group_id) is None:
-        await delete_arcade.finish(_NOT_OPEN)
-    if not await _is_admin(bot, event):
-        await delete_arcade.finish("只有管理员能够删除机厅")
-    name = str(args).strip()
+    ctx = await _target_group(
+        bot,
+        event,
+        str(args).strip(),
+        open_required=True,
+        group_admin_required=True,
+        deny="只有管理员能够删除机厅",
+    )
+    if isinstance(ctx, str):
+        await delete_arcade.finish(ctx)
+    gid, name, scope = ctx
     if not name:
         session.start(
             session.KIND_ASK,
-            event.group_id,
+            scope,
             event.get_user_id(),
             topic=session.TOPIC_DELETE,
+            payload={"group_id": gid},
         )
         await delete_arcade.finish("请输入要删除的机厅名称/序号：")
-    await delete_arcade.finish(await service.delete_arcade_reply(event.group_id, name))
+    await delete_arcade.finish(await service.delete_arcade_reply(gid, name))
 
 
 @show_arcade.handle()
 @handle_errors()
-async def _(event: GroupMessageEvent):
-    if await store.get_group(event.group_id) is None:
-        await show_arcade.finish(_NOT_OPEN)
-    entries = await store.list_arcades(event.group_id)
+async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
+    ctx = await _target_group(
+        bot,
+        event,
+        str(args).strip(),
+        open_required=True,
+        group_admin_required=False,
+        private_admin_required=True,
+    )
+    if isinstance(ctx, str):
+        await show_arcade.finish(ctx)
+    entries = await store.list_arcades(ctx[0])
     body = (
         "\n".join(f"{i}：{e.name}" for i, e in enumerate(entries, 1)) or "（暂无机厅）"
     )
@@ -218,23 +380,30 @@ get_alias = on_command("机厅别名", priority=10, block=True)
 @handle_errors()
 async def _(
     bot: Bot,
-    event: GroupMessageEvent,
+    event: MessageEvent,
     args: Message = CommandArg(),
 ):
     parts = str(args).strip().split(maxsplit=1)
     if len(parts) != 2:
         await add_alias.finish("格式错误：添加机厅别名 <店名/序号> <别名>")
-    if await store.get_group(event.group_id) is None:
-        await add_alias.finish(_NOT_OPEN)
-    if not await _is_admin(bot, event):
-        await add_alias.finish("只有管理员能够添加机厅别名")
+    ctx = await _target_group(
+        bot,
+        event,
+        str(args).strip(),
+        open_required=True,
+        group_admin_required=True,
+        deny="只有管理员能够添加机厅别名",
+    )
+    if isinstance(ctx, str):
+        await add_alias.finish(ctx)
+    gid, _, _ = ctx
     name, alias = parts[0], parts[1].strip()
-    entry = await service.resolve_arcade(event.group_id, name, by_alias=False)
+    entry = await service.resolve_arcade(gid, name, by_alias=False)
     if entry is None:
         await add_alias.finish(
             f"店名 '{name}' 不在群聊中或为机厅别名，请先添加该机厅或使用该机厅本名"
         )
-    if await store.add_alias(event.group_id, entry.id, alias):
+    if await store.add_alias(gid, entry.id, alias):
         await add_alias.finish(f"已成功为 '{entry.name}' 添加别名 '{alias}'")
     await add_alias.finish(f"别名 '{alias}' 已存在，请使用其他别名")
 
@@ -243,48 +412,65 @@ async def _(
 @handle_errors()
 async def _(
     bot: Bot,
-    event: GroupMessageEvent,
+    event: MessageEvent,
     args: Message = CommandArg(),
 ):
     parts = str(args).strip().split(maxsplit=1)
     if len(parts) != 2:
         await delete_alias.finish("格式错误：删除机厅别名 <店名/序号> <别名/序号>")
-    if await store.get_group(event.group_id) is None:
-        await delete_alias.finish(_NOT_OPEN)
-    if not await _is_admin(bot, event):
-        await delete_alias.finish("只有管理员能够删除机厅别名")
+    ctx = await _target_group(
+        bot,
+        event,
+        str(args).strip(),
+        open_required=True,
+        group_admin_required=True,
+        deny="只有管理员能够删除机厅别名",
+    )
+    if isinstance(ctx, str):
+        await delete_alias.finish(ctx)
+    gid, _, _ = ctx
     name, alias_ref = parts[0], parts[1].strip()
-    entry = await service.resolve_arcade(event.group_id, name, by_alias=False)
+    entry = await service.resolve_arcade(gid, name, by_alias=False)
     if entry is None:
         await delete_alias.finish(
             f"店名 '{name}' 不在群聊中或为机厅别名，请先添加该机厅或使用该机厅本名"
         )
-    aliases = await store.list_aliases(event.group_id, entry.id)
+    aliases = await store.list_aliases(gid, entry.id)
     alias = await service.resolve_from_list(aliases, alias_ref)
     if alias is None:
         await delete_alias.finish(f"别名 '{alias_ref}' 不存在，请检查输入的别名")
-    await store.remove_alias(event.group_id, entry.id, alias)
+    await store.remove_alias(gid, entry.id, alias)
     await delete_alias.finish(f"已成功删除 '{entry.name}' 的别名 '{alias}'")
 
 
 @get_alias.handle()
 @handle_errors()
 async def _(
-    event: GroupMessageEvent,
+    bot: Bot,
+    event: MessageEvent,
     args: Message = CommandArg(),
 ):
-    text = str(args).strip()
+    ctx = await _target_group(
+        bot,
+        event,
+        str(args).strip(),
+        open_required=True,
+        group_admin_required=False,
+        private_admin_required=True,
+    )
+    if isinstance(ctx, str):
+        await get_alias.finish(ctx)
+    gid, text, scope = ctx
     if not text:
         session.start(
             session.KIND_ASK,
-            event.group_id,
+            scope,
             event.get_user_id(),
             topic=session.TOPIC_ALIAS_QUERY,
+            payload={"group_id": gid},
         )
         await get_alias.finish("请输入要查询别名的机厅名称/序号：")
-    if await store.get_group(event.group_id) is None:
-        await get_alias.finish("本群尚未开通相关功能，请联系群主或管理员添加群聊")
-    await get_alias.finish(await service.alias_list_reply(event.group_id, text))
+    await get_alias.finish(await service.alias_list_reply(gid, text))
 
 
 # ---- 地图 ----
@@ -300,24 +486,30 @@ get_map = on_command("机厅地图", aliases={"音游地图"}, priority=10, bloc
 @handle_errors()
 async def _(
     bot: Bot,
-    event: GroupMessageEvent,
+    event: MessageEvent,
     args: Message = CommandArg(),
 ):
     parts = str(args).strip().split(maxsplit=1)
     if len(parts) != 2:
         await add_map.finish("格式错误：添加机厅地图 <机厅名称/序号> <网址>")
-    if await store.get_group(event.group_id) is None:
-        await add_map.finish(_NOT_OPEN)
-    # 上游添加地图漏了权限检查（帮助文案却标注「管理」），此处按文案补上
-    if not await _is_admin(bot, event):
-        await add_map.finish("只有管理员能够添加机厅地图")
+    ctx = await _target_group(
+        bot,
+        event,
+        str(args).strip(),
+        open_required=True,
+        group_admin_required=True,
+        deny="只有管理员能够添加机厅地图",
+    )
+    if isinstance(ctx, str):
+        await add_map.finish(ctx)
+    gid, _, _ = ctx
     name, url = parts[0], parts[1].strip()
-    entry = await service.resolve_arcade(event.group_id, name, by_alias=False)
+    entry = await service.resolve_arcade(gid, name, by_alias=False)
     if entry is None:
         await add_map.finish(
             f"机厅 '{name}' 不在群聊中或为机厅别名，请先添加该机厅或使用该机厅本名"
         )
-    if await store.add_map(event.group_id, entry.id, url):
+    if await store.add_map(gid, entry.id, url):
         await add_map.finish(f"已成功为 '{entry.name}' 添加机厅地图网址 '{url}'")
     await add_map.finish(f"网址 '{url}' 已存在于机厅地图中")
 
@@ -326,53 +518,70 @@ async def _(
 @handle_errors()
 async def _(
     bot: Bot,
-    event: GroupMessageEvent,
+    event: MessageEvent,
     args: Message = CommandArg(),
 ):
     parts = str(args).strip().split(maxsplit=1)
     if len(parts) != 2:
         await delete_map.finish("格式错误：删除机厅地图 <机厅名称/序号> <网址/序号>")
-    if await store.get_group(event.group_id) is None:
-        await delete_map.finish(_NOT_OPEN)
-    if not await _is_admin(bot, event):
-        await delete_map.finish("只有管理员能够删除机厅地图")
+    ctx = await _target_group(
+        bot,
+        event,
+        str(args).strip(),
+        open_required=True,
+        group_admin_required=True,
+        deny="只有管理员能够删除机厅地图",
+    )
+    if isinstance(ctx, str):
+        await delete_map.finish(ctx)
+    gid, _, _ = ctx
     name, url_ref = parts[0], parts[1].strip()
-    entry = await service.resolve_arcade(event.group_id, name, by_alias=False)
+    entry = await service.resolve_arcade(gid, name, by_alias=False)
     if entry is None:
         await delete_map.finish(
             f"机厅 '{name}' 不在群聊中或为机厅别名，请先添加该机厅或使用该机厅本名"
         )
-    maps = await store.list_maps(event.group_id, entry.id)
+    maps = await store.list_maps(gid, entry.id)
     if not maps:
         await delete_map.finish(f"机厅 '{entry.name}' 没有添加过任何地图网址")
     url = await service.resolve_from_list(maps, url_ref)
     if url is None:
         await delete_map.finish(f"网址 '{url_ref}' 不在机厅地图中")
-    await store.remove_map(event.group_id, entry.id, url)
+    await store.remove_map(gid, entry.id, url)
     await delete_map.finish(f"已成功从 '{entry.name}' 删除机厅地图网址 '{url}'")
 
 
 @get_map.handle()
 @handle_errors()
 async def _(
-    event: GroupMessageEvent,
+    bot: Bot,
+    event: MessageEvent,
     args: Message = CommandArg(),
 ):
-    text = str(args).strip()
+    ctx = await _target_group(
+        bot,
+        event,
+        str(args).strip(),
+        open_required=True,
+        group_admin_required=False,
+        private_admin_required=True,
+    )
+    if isinstance(ctx, str):
+        await get_map.finish(ctx)
+    gid, text, scope = ctx
     if not text:
         session.start(
             session.KIND_ASK,
-            event.group_id,
+            scope,
             event.get_user_id(),
             topic=session.TOPIC_MAP_QUERY,
+            payload={"group_id": gid},
         )
         await get_map.finish("请输入要查询地图的机厅名称/序号：")
-    if await store.get_group(event.group_id) is None:
-        await get_map.finish(_NOT_OPEN)
-    await get_map.finish(await service.map_list_reply(event.group_id, text))
+    await get_map.finish(await service.map_list_reply(gid, text))
 
 
-# ---- 人数上报与查询 ----
+# ---- 人数上报与查询（仅群聊：上报者是群成员本人） ----
 
 
 async def _count_update_rule(state: T_State, event: MessageEvent) -> bool:
@@ -448,7 +657,7 @@ async def _(
     await count_query.finish(await service.count_query_reply(entry))
 
 
-# ---- 排卡 ----
+# ---- 排卡（队列操作仅群聊；排卡现状支持私聊查询） ----
 
 go_on = on_command("上机", priority=10, block=True)
 get_in = on_command("排卡", priority=10, block=True)
@@ -512,16 +721,27 @@ async def _(event: GroupMessageEvent):
 @show_list.handle()
 @handle_errors()
 async def _(
-    event: GroupMessageEvent,
+    bot: Bot,
+    event: MessageEvent,
     args: Message = CommandArg(),
 ):
-    name = str(args).strip()
+    ctx = await _target_group(
+        bot,
+        event,
+        str(args).strip(),
+        open_required=False,
+        group_admin_required=False,
+        private_admin_required=True,
+    )
+    if isinstance(ctx, str):
+        await show_list.finish(ctx)
+    gid, name, _ = ctx
     if not name:
         await show_list.finish("请输入机厅名称")
-    entry = await service.resolve_arcade(event.group_id, name)
+    entry = await service.resolve_arcade(gid, name)
     if entry is None:
         await show_list.finish("没有该机厅，若需要可使用添加机厅功能")
-    queue = await store.list_queue(event.group_id, entry.id)
+    queue = await store.list_queue(gid, entry.id)
     lines = [f"第{i}位：{item.nickname}" for i, item in enumerate(queue, 1)]
     await show_list.finish(f"{entry.name}机厅排卡如下：\n" + "\n".join(lines))
 
@@ -548,18 +768,26 @@ async def _(event: GroupMessageEvent):
 @handle_errors()
 async def _(
     bot: Bot,
-    event: GroupMessageEvent,
+    event: MessageEvent,
     args: Message = CommandArg(),
 ):
-    name = str(args).strip()
+    ctx = await _target_group(
+        bot,
+        event,
+        str(args).strip(),
+        open_required=True,
+        group_admin_required=True,
+        deny="只有管理员能够闭店",
+    )
+    if isinstance(ctx, str):
+        await shut_down.finish(ctx)
+    gid, name, _ = ctx
     if not name:
         await shut_down.finish("请输入机厅名称")
-    if not await _is_admin(bot, event):
-        await shut_down.finish("只有管理员能够闭店")
-    entry = await service.resolve_arcade(event.group_id, name)
+    entry = await service.resolve_arcade(gid, name)
     if entry is None:
         await shut_down.finish("没有该机厅，若需要可使用添加机厅功能")
-    await store.clear_queue(event.group_id, entry.id)
+    await store.clear_queue(gid, entry.id)
     await shut_down.finish("闭店成功，当前排队 0 人")
 
 
@@ -569,6 +797,7 @@ async def _(
 _COMMAND_HEADS = (
     "添加群聊",
     "删除群聊",
+    "管理群",
     "静默监听模式",
     "静默模式",
     "监听模式",
@@ -607,13 +836,11 @@ _SEARCH_CHOICES = frozenset("123456")
 
 async def _session_rule(state: T_State, event: MessageEvent) -> bool:
     """会话消费门禁：搜索会话只吃 1-6；追问会话吃任意非指令消息。"""
-    if not isinstance(event, GroupMessageEvent):
-        return False
     text = event.raw_message.strip()
     if text.startswith(_COMMAND_HEADS):
-        session.pop(event.group_id, event.get_user_id())  # 新指令进入，丢会话
+        session.pop(_scope(event), event.get_user_id())  # 新指令进入，丢会话
         return False
-    pending = session.get(event.group_id, event.get_user_id())
+    pending = session.get(_scope(event), event.get_user_id())
     if pending is None:
         return False
     if pending.kind == session.KIND_SEARCH and text not in _SEARCH_CHOICES:
@@ -629,37 +856,45 @@ session_consumer = on_message(priority=0, block=True, rule=_session_rule)
 @handle_errors()
 async def _(
     bot: Bot,
-    event: GroupMessageEvent,
+    event: MessageEvent,
     state: T_State,
 ):
     pending: session.PendingSession = state["_awmc_arcade_pending"]
     text = event.raw_message.strip()
-    group_id = event.group_id
+    scope = _scope(event)
     user_id = event.get_user_id()
+    # 落库目标群：随会话 payload 携带（私聊扩权时 ≠ 会话 scope）
+    gid = pending.payload.get("group_id")
+    if gid is None and isinstance(event, GroupMessageEvent):
+        gid = event.group_id
     if pending.kind == session.KIND_SEARCH:
         # 选择结果与收尾由 continue_search 全权处理（含内部 pop）
-        reply = await service.continue_search(group_id, user_id, text)
+        reply = await service.continue_search(scope, user_id, text)
         if reply is not None:
             await session_consumer.finish(reply)
         return  # 无效选择静默吞掉（与上游一致）
-    session.pop(group_id, user_id)
+    session.pop(scope, user_id)
+    if gid is None:
+        await session_consumer.finish(_NO_TARGET)
     if pending.topic == session.TOPIC_ADD:
         await session_consumer.finish(
-            await service.begin_add_arcade(group_id, user_id, text)
+            await service.begin_add_arcade(scope, gid, user_id, text)
         )
     if pending.topic == session.TOPIC_DELETE:
-        await session_consumer.finish(await service.delete_arcade_reply(group_id, text))
+        await session_consumer.finish(await service.delete_arcade_reply(gid, text))
     if pending.topic == session.TOPIC_ALIAS_QUERY:
-        await session_consumer.finish(await service.alias_list_reply(group_id, text))
+        await session_consumer.finish(await service.alias_list_reply(gid, text))
     if pending.topic == session.TOPIC_MAP_QUERY:
-        await session_consumer.finish(await service.map_list_reply(group_id, text))
+        await session_consumer.finish(await service.map_list_reply(gid, text))
 
 
-# ---- 位置监听（附近机厅） ----
+# ---- 位置监听（附近机厅，仅群聊） ----
 
 
 async def _location_rule(state: T_State, event: MessageEvent) -> bool:
     """位置分享消息门禁：解析 CQ json 里的经纬度挂 state。"""
+    if not isinstance(event, GroupMessageEvent):
+        return False
     for seg in event.message:
         if seg.type != "json":
             continue
@@ -687,7 +922,7 @@ location_listener = on_message(priority=100, block=False, rule=_location_rule)
 @handle_errors()
 async def _(
     bot: Bot,
-    event: MessageEvent,
+    event: GroupMessageEvent,
     state: T_State,
 ):
     lat, lon, name = state["_awmc_arcade_location"]
@@ -728,6 +963,11 @@ HELP_TEXT = (
     "[排卡现状] 展示当前排队队列的情况\n"
     "[延后] 将自己延后一位\n"
     "[闭店] (管理)清空排队队列\n"
+    "私聊管理（SUPERUSER 或目标群管理员）:\n"
+    "[管理群 <群号>] 设置私聊管理目标（默认30分钟内有效）\n"
+    "[管理群] 查看当前目标；[管理群 取消] 清除\n"
+    "设置后私聊直接发上述管理/查询指令即可作用于目标群，"
+    "或在指令开头带群号临时指定（如 添加机厅 123456 某店）\n"
     "索引支持:\n"
     "机厅名、别名、地图URL均可用序号代替 (使用 机厅列表 命令查看)\n"
     "示例：删除机厅别名 1 2 (删除第1个机厅的第2个别名)\n"
@@ -739,5 +979,14 @@ arcade_help = on_command("机厅help", aliases={"机厅帮助"}, priority=100, b
 
 
 @arcade_help.handle()
-async def _():
+@handle_errors()
+async def _(bot: Bot, event: MessageEvent):
+    # 长文合并转发（点开查看，避免群内刷屏）；协议端不支持或发送失败时降级纯文本
+    if await try_send_forward(
+        bot,
+        [HELP_TEXT],
+        group_id=getattr(event, "group_id", None),
+        user_id=event.get_user_id(),
+    ):
+        return
     await arcade_help.finish(HELP_TEXT)

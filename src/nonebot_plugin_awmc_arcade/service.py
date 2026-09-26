@@ -8,6 +8,7 @@ import re
 from datetime import datetime
 
 from nonebot import logger
+from nonebot_plugin_awmc_helper.config import plugin_config as awmc_helper_config
 
 from . import session, nearcade
 from .store import ArcadeEntry, store
@@ -68,9 +69,11 @@ async def compute_count(
     """人数换算，返回 (当前值, 新值, 实际增量)；非法时返回错误文案。"""
     cfg = plugin_config
     current = await store.current_count(entry.group_id, entry.id)
+    # 单次变更上限复用主插件同名配置（内置排卡同语义，单一来源）
+    max_delta = awmc_helper_config.awmc_arcade_max_delta
     if op in (OP_INC, OP_DEC):
         delta = num if num else 1
-        if abs(delta) > cfg.awmc_arcade_max_delta:
+        if abs(delta) > max_delta:
             return "检测到非法数值，拒绝更新"
         new_num = current + (delta if op == OP_INC else -delta)
         if not 0 <= new_num <= cfg.awmc_arcade_max_count:
@@ -280,8 +283,12 @@ def _search_menu(page: int, shops: list[dict], total: int) -> str:
     return text
 
 
-async def begin_add_arcade(group_id: int, user_id: str, name: str) -> str:
-    """添加机厅入口：命中搜索则挂选择会话，否则直接添加。"""
+async def begin_add_arcade(scope: int, group_id: int, user_id: str, name: str) -> str:
+    """添加机厅入口：命中搜索则挂选择会话，否则直接添加。
+
+    ``scope`` 是会话表的键维度（群聊=群号、私聊=0），``group_id`` 是
+    落库目标群——私聊扩权时两者不同。
+    """
     if await store.get_arcade_by_name(group_id, name):
         return "机厅已在群聊中"
     result = await nearcade.search_shops(name)
@@ -291,9 +298,10 @@ async def begin_add_arcade(group_id: int, user_id: str, name: str) -> str:
         return f"未找到相关机厅，已直接添加「{name}」到群聊名单中"
     session.start(
         session.KIND_SEARCH,
-        group_id,
+        scope,
         user_id,
         payload={
+            "group_id": group_id,
             "shops": shops,
             "query": name,
             "page": 1,
@@ -326,9 +334,12 @@ async def _add_from_shop(group_id: int, shop: dict, fallback: str, user_id: str)
     return reply
 
 
-async def continue_search(group_id: int, user_id: str, choice: str) -> str | None:
-    """搜索选择会话续接（1-3 选择 / 4 翻页 / 5 直加原名 / 6 取消）。"""
-    sess = session.get(group_id, user_id)
+async def continue_search(scope: int, user_id: str, choice: str) -> str | None:
+    """搜索选择会话续接（1-3 选择 / 4 翻页 / 5 直加原名 / 6 取消）。
+
+    落库目标群取自会话 payload（私聊扩权时 ≠ 会话键 scope）。
+    """
+    sess = session.get(scope, user_id)
     if sess is None or sess.kind != session.KIND_SEARCH:
         return None
     payload = sess.payload
@@ -336,13 +347,14 @@ async def continue_search(group_id: int, user_id: str, choice: str) -> str | Non
     query: str = payload["query"]
     page: int = payload["page"]
     total: int = payload["total"]
+    group_id: int = payload["group_id"]
     user_id = payload.get("created_by") or user_id
 
     if choice == "6":
-        session.pop(group_id, user_id)
+        session.pop(scope, user_id)
         return "❌ 已取消添加操作"
     if choice == "5":
-        session.pop(group_id, user_id)
+        session.pop(scope, user_id)
         if await store.get_arcade_by_name(group_id, query):
             return f"机厅「{query}」已在群聊中"
         await store.add_arcade(group_id, query, created_by=user_id)
@@ -351,7 +363,7 @@ async def continue_search(group_id: int, user_id: str, choice: str) -> str | Non
         idx = int(choice) - 1
         if idx >= len(shops):
             return None
-        session.pop(group_id, user_id)
+        session.pop(scope, user_id)
         return await _add_from_shop(group_id, shops[idx], query, user_id)
     if choice == "4":
         if total <= page * len(shops or [1]):

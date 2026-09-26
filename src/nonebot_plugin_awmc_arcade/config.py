@@ -1,7 +1,14 @@
-"""插件配置项（.env 按 pydantic 字段名大写书写，前缀 ``AWMC_ARCADE_``）。"""
+"""插件配置项（.env 按 pydantic 字段名大写书写，前缀 ``AWMC_ARCADE_``）。
+
+人数单次变更上限不在此定义——直接复用主插件同名配置
+``awmc_arcade_max_delta``（内置排卡同语义，单一来源，避免两处默认不一致）。
+"""
 
 from nonebot import get_plugin_config
 from pydantic import BaseModel
+from nonebot_plugin_awmc_helper.config import plugin_config as awmc_helper_config
+
+__all__ = ["Config", "SmartTipRule", "awmc_helper_config", "plugin_config"]
 
 
 class SmartTipRule(BaseModel):
@@ -29,8 +36,6 @@ class Config(BaseModel):
         SmartTipRule(max_minutes=90, tip="💀 DBD，纯折磨，建议换店"),
         SmartTipRule(max_minutes=9999, tip="🪦 建议回家（或者明天再来）"),
     ]
-    # 单次人数变更上限（±，超过拒绝上报）
-    awmc_arcade_max_delta: int = 50
     # 人数合法区间 [0, max]
     awmc_arcade_max_count: int = 100
     # 单轮游玩时长（分钟）：等待时间 = 排队轮数 × 该值
@@ -39,6 +44,8 @@ class Config(BaseModel):
     awmc_arcade_nearby_radius_km: int = 10
     # 追问/搜索选择会话的 TTL（秒），超时未回应自动失效
     awmc_arcade_session_ttl: int = 120
+    # 私聊「管理群 <群号>」上下文的 TTL（秒）
+    awmc_arcade_manage_ttl: int = 1800
 
 
 plugin_config: Config = get_plugin_config(Config)

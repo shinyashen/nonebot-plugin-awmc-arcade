@@ -325,10 +325,24 @@ async def test_updated_list_empty(app: App):
     )
 
 
-async def test_help(app: App):
+async def test_help(app: App, monkeypatch):
+    """帮助默认走合并转发；转发不可用时降级纯文本。
+
+    core.forward 本身由主插件侧测试覆盖，这里只打桩验证本插件的两态分流。
+    """
+    import nonebot_plugin_awmc_arcade.matchers as arcade_matchers
     from nonebot_plugin_awmc_arcade import arcade_help
     from nonebot_plugin_awmc_arcade.matchers import HELP_TEXT
 
+    async def forward_ok(bot, entries, **kwargs):
+        return True
+
+    async def forward_fail(bot, entries, **kwargs):
+        return False
+
+    monkeypatch.setattr(arcade_matchers, "try_send_forward", forward_ok)
+    await _no_reply(app, arcade_help, _event("机厅help"))
+    monkeypatch.setattr(arcade_matchers, "try_send_forward", forward_fail)
     await _reply(app, arcade_help, _event("机厅help"), HELP_TEXT)
 
 

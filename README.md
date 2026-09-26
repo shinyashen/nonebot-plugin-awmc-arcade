@@ -19,6 +19,7 @@
 ## 要求
 
 - NoneBot2 ≥ 2.4.3，Python ≥ 3.10
+- [nonebot-plugin-awmc-helper](https://github.com/shinyashen/nonebot-plugin-awmc-helper)（主插件，复用其 HTTP 智能代理、异常兜底与合并转发能力）
 - OneBot v11 适配器（位置监听与群管权限依赖 v11 协议）
 - 一个 [Nearcade](https://nearcade.cn) 开发者 API 令牌（用于人数上传；不配置则使用上游公开的开发令牌，仅保证可用，建议替换）
 
@@ -45,7 +46,7 @@ AWMC_DISABLED_PLUGINS='["arcade"]'
 pip install nonebot-plugin-awmc-arcade
 ```
 
-随后将 `"nonebot_plugin_awmc_arcade"` 加入 bot 的加载列表（本插件不依赖主插件也可独立运行）。
+随后将 `"nonebot_plugin_awmc_arcade"` 加入 bot 的加载列表。
 
 ## 配置
 
@@ -53,7 +54,8 @@ pip install nonebot-plugin-awmc-arcade
 |---|---|---|
 | `awmc_arcade_nearcade_api_token` | 上游公开开发令牌 | Nearcade 开发者 API 令牌（人数上传） |
 | `awmc_arcade_smart_tips` | 5 档默认提示 | 等待时间提示规则（`max_minutes` 升序，`tip` 文案） |
-| `awmc_arcade_max_delta` | `50` | 单次人数变更上限（±，超过拒绝） |
+| （复用主插件）`awmc_arcade_max_delta` | `30` | 单次人数变更上限（±，超过拒绝）；与内置排卡同名字段，单一来源 |
+| `awmc_arcade_manage_ttl` | `1800` | 私聊「管理群」上下文的存活秒数 |
 | `awmc_arcade_max_count` | `100` | 人数合法区间上限 |
 | `awmc_arcade_per_round_minutes` | `16` | 单轮游玩时长（分钟），等待时间估算基数 |
 | `awmc_arcade_nearby_radius_km` | `10` | 附近机厅发现半径（公里） |
@@ -67,7 +69,8 @@ AWMC_ARCADE_NEARCADE_API_TOKEN=nk_xxxxxxxx
 
 | 指令 | 权限 | 说明 |
 |---|---|---|
-| `机厅help` / `机厅帮助` | — | 完整指令说明 |
+| `机厅help` / `机厅帮助` | — | 完整指令说明（合并转发展示） |
+| `管理群 <群号>` | 私聊 | 设置私聊管理目标（30 分钟内有效）；`管理群` 查看、`管理群 取消` 清除 |
 | `添加群聊` / `删除群聊` | 管理 | 开通/关闭本群排卡功能 |
 | `静默监听模式` / `关闭静默监听模式` | SUPERUSER | 开关人数上报确认回复（持久化） |
 | `添加机厅 <店名>` | 管理 | Nearcade 搜索后按序号选择添加（回复 1-6） |
@@ -90,6 +93,23 @@ AWMC_ARCADE_NEARCADE_API_TOKEN=nk_xxxxxxxx
 
 发送位置消息可发现附近机厅（Nearcade 数据，取最近 3 家）。
 
+## 私聊管理
+
+SUPERUSER 或某群的管理员可以在**私聊**执行管理/查询类指令，避免设置期在群里刷屏：
+
+```text
+管理群 123456          ← 设置私聊管理目标（默认 30 分钟内有效）
+添加机厅 某店          ← 直接作用于目标群（含 Nearcade 搜索选择交互）
+删除机厅 1             ← 序号操作照常
+管理群                 ← 查看当前目标；管理群 取消 清除
+```
+
+也可以不设上下文，在指令开头临时带群号（≥4 位，与机厅序号天然区分）：`添加机厅 123456 某店`。
+
+- **身份校验**：SUPERUSER 直通；其余用户经 `get_group_member_info` 直查目标群角色（admin/owner 放行，结果缓存 5 分钟），bot 不在目标群时提示校验失败；
+- **覆盖指令**：添加/删除群聊、添加/删除机厅、别名与地图增删查、机厅列表、机厅别名、机厅地图、排卡现状、闭店、静默监听模式（SUPERUSER）；
+- **不开放私聊**：人数上报、排卡/上机/退勤/延后、mai/机厅人数（排队与上报者是群成员本人，私聊无语义）。
+
 ## 与上游的主要差异
 
 - **存储**：进程内 JSON 全局 dict → 独立 SQLite（localstore 数据目录 `awmc_arcade.db`），全异步读写；上游「重启丢静默配置」「并发写坏 JSON」两类问题随之消除；
@@ -97,7 +117,9 @@ AWMC_ARCADE_NEARCADE_API_TOKEN=nk_xxxxxxxx
 - **会话**：`got`/`pause` 与 `^[1-6]$` 全局正则（会吞掉群里所有单个数字消息）→ TTL 会话表 + priority=0 定向消费，会话超时自动失效；
 - **权限**：添加机厅地图补上上游缺失的管理员检查（帮助文案本就标注「管理」）；
 - **语义修正**：显式设置人数（`店名=5`）为绝对值；相对增减（`++/--`）保持上游「云端有他人上报时增量叠加」的合并语义；
-- **静默模式**：只吞人数上报确认，查询照常回答（上游静默时查询几乎无输出的行为比较费解）。
+- **静默模式**：只吞人数上报确认，查询照常回答（上游静默时查询几乎无输出的行为比较费解）；
+- **私聊扩权**：新增「管理群」上下文与前导群号语法，SUPERUSER/目标群管理员可在私聊完成全部设置（见上节）；
+- **生态复用**：HTTP 层接入主插件智能代理、异常兜底复用 `core.utils.handle_errors`、长文帮助走主插件合并转发（LLBot 实测兼容实现）。
 
 ## 截图
 

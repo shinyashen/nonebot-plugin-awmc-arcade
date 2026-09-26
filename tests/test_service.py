@@ -202,7 +202,7 @@ async def test_begin_add_arcade_search_flow():
         return_value=Response(200, json={"shops": [SHOP], "totalCount": 4})
     )
 
-    reply = await service.begin_add_arcade(876, "u1", "近")
+    reply = await service.begin_add_arcade(876, 876, "u1", "近")
     assert "Nearcade店" in reply
     assert "5️⃣" in reply  # 挂会话 + 菜单
     assert route.called
@@ -225,6 +225,7 @@ async def test_begin_add_arcade_search_flow():
         876,
         "u1",
         payload={
+            "group_id": 876,
             "shops": [SHOP],
             "query": "近",
             "page": 1,
@@ -250,12 +251,12 @@ async def test_begin_add_arcade_no_result_direct():
     respx.get(f"{BASE}/api/shops").mock(
         return_value=Response(200, json={"shops": [], "totalCount": 0})
     )
-    reply = await service.begin_add_arcade(876, "u1", "无名店")
+    reply = await service.begin_add_arcade(876, 876, "u1", "无名店")
     assert "已直接添加「无名店」" in reply
     assert await store.get_arcade_by_name(876, "无名店") is not None
 
     # 重复添加
-    reply = await service.begin_add_arcade(876, "u1", "无名店")
+    reply = await service.begin_add_arcade(876, 876, "u1", "无名店")
     assert "已在群聊中" in reply
 
 
@@ -269,6 +270,7 @@ async def test_continue_search_cancel_and_direct():
         876,
         "u1",
         payload={
+            "group_id": 876,
             "shops": [SHOP],
             "query": "近",
             "page": 1,
@@ -284,6 +286,7 @@ async def test_continue_search_cancel_and_direct():
         876,
         "u1",
         payload={
+            "group_id": 876,
             "shops": [SHOP],
             "query": "近",
             "page": 1,

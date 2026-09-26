@@ -31,12 +31,15 @@ async def after_nonebot_init(after_nonebot_init: None):
 
 @pytest.fixture(autouse=True)
 async def _stores(tmp_path):
-    """库文件重定向到临时文件 + 清空内存会话表（每用例独立）。"""
+    """库文件重定向 + 清空内存会话/缓存（每用例独立）。"""
     from nonebot_plugin_awmc_arcade import session
     from nonebot_plugin_awmc_arcade.store import init_store, set_db_file
+    from nonebot_plugin_awmc_arcade.matchers import _admin_cache
 
     set_db_file(tmp_path / "arcade.db")
     await init_store()
     yield
     set_db_file(None)
     session._sessions.clear()
+    session._manage.clear()
+    _admin_cache.clear()

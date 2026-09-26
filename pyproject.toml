@@ -12,6 +12,7 @@ dependencies = [
   "httpx>=0.27.0,<1.0.0",                    # Nearcade API（全异步，不引入 aiohttp）
   "nonebot-adapter-onebot>=2.4.6,<3.0.0",    # 本插件为 OneBot v11 专插（位置监听解析 CQ json）
   "nonebot-plugin-apscheduler>=0.5.0,<1.0.0",# 每日 0 点清零
+  "nonebot-plugin-awmc-helper>=0.1.0",       # 主插件：core 公开接口（HTTP 智能代理/异常兜底/合并转发）
   "nonebot-plugin-localstore>=0.7.4,<1.0.0", # 存储文件
   "nonebot2>=2.4.3,<3.0.0",
   "sqlmodel>=0.0.16",                        # 统一 SQLite ORM
@@ -42,6 +43,12 @@ test = [
 [build-system]
 requires = ["uv_build>=0.10.0,<0.11.0"]
 build-backend = "uv_build"
+
+[tool.uv.sources]
+# 主插件仓库暂为私有且未上架 PyPI：开发环境以平级目录 path 依赖解析。
+# 作为 awmc_plugins/ 目录插件部署时由主插件直接加载，不走此解析；
+# 主插件公开/上架后删除本段即回到 `nonebot-plugin-awmc-helper>=0.1.0` 版本依赖。
+nonebot-plugin-awmc-helper = { path = "../nonebot-plugin-awmc-helper" }
 
 [tool.nonebot]
 adapters = [{ name = "OneBot V11", module_name = "nonebot.adapters.onebot.v11" }]

@@ -5,13 +5,15 @@ awmc-helper 生态第三方插件，由 YuuzukiRin/nonebot_plugin_mai_arcade v0.
 只能启用其一——停用内置时把 ``arcade`` 写入主插件 ``awmc_disabled_plugins``）：
 
 - 数据：进程内 JSON 全局 dict → 独立 SQLite（``store.py``，sqlmodel 全异步）；
-- HTTP：同步 ``http.client``（阻塞事件循环）→ 共享 ``httpx.AsyncClient``
-  （``nearcade.py``）；
+- HTTP：同步 ``http.client``（阻塞事件循环）→ 共享 ``httpx.AsyncClient``，
+  并接入主插件智能代理层（国内站直连优先、连接失败代理回退）；
 - 会话：``got``/``pause`` 与裸 1-6 正则（会吞全群单个数字消息）→ TTL 会话表
   + priority=0 消费 matcher（``session.py``）；
 - 静默监听模式持久化（上游 block_group 为内存 set，重启即丢），语义收敛为
   「只吞人数上报确认，查询照常回答」；
 - 排卡队列按用户 id 记账（上游按昵称，重名/改名会错位），展示仍用入队昵称；
+- 私聊扩权（上游没有）：SUPERUSER 或目标群管理员可在私聊经「管理群 <群号>」
+  上下文或前导群号执行管理/查询指令，身份经 get_group_member_info 校验；
 - 分层：本装配层零业务，指令入口集中在 ``matchers.py``，域逻辑在
   ``service.py``。
 
@@ -19,6 +21,13 @@ awmc-helper 生态第三方插件，由 YuuzukiRin/nonebot_plugin_mai_arcade v0.
 """
 
 from nonebot import require, get_driver
+
+# 官方《跨插件访问》规范：require 主插件必须先于一切对其 core 的 import。
+# 经 awmc_plugins/ 加载时主插件已在加载中，此 require 是已加载注册表的
+# no-op（主插件扫描发生在自身 core 导入之后，无重入风险）；独立 pip 安装
+# 或 plugin_dirs 加载时，此 require 负责先加载主插件。
+require("nonebot_plugin_awmc_helper")
+
 from nonebot.plugin import PluginMetadata
 
 from .config import Config
@@ -82,6 +91,7 @@ from .matchers import (  # noqa: F401
     delete_group,
     updated_list,
     delete_arcade,
+    manage_group_cmd,
     session_consumer,
     location_listener,
 )
