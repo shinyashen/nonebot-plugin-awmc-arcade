@@ -5,6 +5,8 @@
 """
 
 import re
+import json
+import time
 from datetime import datetime
 from dataclasses import dataclass
 
@@ -250,6 +252,87 @@ async def updated_today_reply(group_id: int) -> str:
 
 # ---- 添加机厅（Nearcade 搜索交互） ----
 
+# 地区词解析：@江苏 @南京 逐级下钻；首词若不是国家则默认在中国境内查找
+REGION_CACHE_TTL = 7 * 86400.0  # 地区树几乎不变，子级缓存 7 天
+_AT_REGION = re.compile(r"@(\S+)")
+
+
+async def _region_children(parent: str | None) -> list[dict]:
+    """地区树子级（meta 缓存 7 天，省/市级条目几十条）。"""
+    key = f"region:children:{parent or '_root'}"
+    now = time.time()
+    raw = await store.get_meta(key)
+    if raw:
+        try:
+            data = json.loads(raw)
+            if now - data["ts"] < REGION_CACHE_TTL:
+                return data["items"]
+        except Exception:
+            pass
+    items = await nearcade.region_children(parent)
+    if items:
+        await store.set_meta(
+            key, json.dumps({"ts": now, "items": items}, ensure_ascii=False)
+        )
+    return items
+
+
+def _region_hits(items: list[dict], token: str) -> list[dict]:
+    exact = [
+        r
+        for r in items
+        if r.get("label") == token or r.get("id") == token or r.get("value") == token
+    ]
+    if exact:
+        return exact[:1]
+    return [r for r in items if token in str(r.get("label", ""))]
+
+
+async def resolve_region(tokens: list[str]) -> tuple[str, str] | str:
+    """逐级解析 @地区词链，返回 (regionId, 展示路径)；失败返回错误文案。
+
+    首词若不命中任何国家，默认落到中国的省级继续找（覆盖「@南京」这类
+    省略国名/省名的写法）；市/区级靠逐级下钻（子级列表缓存后零请求）。
+    """
+    parent: str | None = None
+    path: list[str] = []
+    for i, tok in enumerate(tokens):
+        items = await _region_children(parent)
+        hits = _region_hits(items, tok)
+        if not hits and parent is None and i == 0:
+            cn = next(
+                (r for r in items if r.get("id") == "CN" or r.get("label") == "中国"),
+                None,
+            )
+            if cn is not None:
+                parent = str(cn["id"])
+                path.append(str(cn.get("label") or parent))
+                items = await _region_children(parent)
+                hits = _region_hits(items, tok)
+        if not hits and parent is not None and i == 0 and len(path) == 1:
+            # 省级仍无命中：扫描各省子级（市级直达，如「@南京」）
+            for prov in items:
+                children = await _region_children(str(prov["id"]))
+                sub = _region_hits(children, tok)
+                if sub:
+                    hits = sub
+                    parent = str(prov["id"])
+                    path = [str(prov.get("label") or parent)]
+                    break
+        if not hits:
+            options = "、".join(str(r.get("label")) for r in items[:8])
+            suffix = "…" if len(items) > 8 else ""
+            scope = f"「{path[-1]}」下" if path else ""
+            return f"未找到地区「{tok}」：{scope}可用 {options}{suffix}"
+        if len(hits) > 1:
+            names = "、".join(str(h.get("label")) for h in hits[:6])
+            return f"地区「{tok}」有歧义：{names}？请用更完整的名称"
+        hit = hits[0]
+        parent = str(hit["id"])
+        path.append(str(hit.get("label") or parent))
+    assert parent is not None  # tokens 非空时循环内必然已为 parent 赋值
+    return parent, "/".join(path)
+
 
 def format_shop_info(shop: dict, index: int) -> str:
     """搜索候选条目文案。"""
@@ -310,17 +393,20 @@ def _menu_actions(query: str, has_more: bool) -> str:
     return "\n".join(lines)
 
 
-def _build_menu(query: str, total: int, shops: list[dict]) -> AddMenu:
+def _build_menu(
+    query: str, total: int, shops: list[dict], *, region_label: str = ""
+) -> AddMenu:
     """由累计候选构建菜单（合并转发节点 + 同内容降级单条文本）。"""
     total = max(total, len(shops))
     has_more = total > len(shops)
+    where = f"（{region_label}）" if region_label else ""
     actions = _menu_actions(query, has_more)
     shops_text = "\n\n".join(
         format_shop_info(shop, i) for i, shop in enumerate(shops, 1)
     )
-    text = f"🔍 找到 {total} 个相关机厅：\n\n{shops_text}\n\n{actions}"
+    text = f"🔍 找到 {total} 个相关机厅{where}：\n\n{shops_text}\n\n{actions}"
     nodes = [
-        f"🔍 找到 {total} 个相关机厅",
+        f"🔍 找到 {total} 个相关机厅{where}",
         actions,
         *(format_shop_info(shop, i) for i, shop in enumerate(shops, 1)),
     ]
@@ -335,9 +421,22 @@ async def begin_add_arcade(
     ``scope`` 是会话表的键维度（群聊=群号、私聊=0），``group_id`` 是
     落库目标群——私聊扩权时两者不同。
     """
+    region_tokens = _AT_REGION.findall(name)
+    name = _AT_REGION.sub("", name).strip()
+    region_id: str | None = None
+    region_label = ""
+    if region_tokens:
+        if not name:
+            return "请附带机厅名称，如：添加机厅 天空之城 @南京"
+        resolved = await resolve_region(region_tokens)
+        if isinstance(resolved, str):
+            return resolved
+        region_id, region_label = resolved
     if await store.get_arcade_by_name(group_id, name):
         return "机厅已在群聊中"
-    result = await nearcade.search_shops(name, limit=SEARCH_PAGE_LIMIT)
+    result = await nearcade.search_shops(
+        name, limit=SEARCH_PAGE_LIMIT, region_id=region_id
+    )
     shops = result.get("shops", [])
     if not shops:
         await store.add_arcade(group_id, name, created_by=user_id)
@@ -353,10 +452,12 @@ async def begin_add_arcade(
             "query": name,
             "page": 1,
             "total": total,
+            "region_id": region_id,
+            "region_label": region_label,
             "created_by": user_id,
         },
     )
-    return _build_menu(name, total, shops)
+    return _build_menu(name, total, shops, region_label=region_label)
 
 
 async def _add_from_shop(group_id: int, shop: dict, fallback: str, user_id: str) -> str:
@@ -414,7 +515,9 @@ async def continue_search(
     if choice == "更多":
         if total <= len(shops):
             return "没有更多结果了"
-        result = await nearcade.search_shops(query, page + 1, limit=SEARCH_PAGE_LIMIT)
+        result = await nearcade.search_shops(
+            query, page + 1, limit=SEARCH_PAGE_LIMIT, region_id=payload.get("region_id")
+        )
         new_shops = result.get("shops", [])
         if not new_shops:
             return "没有更多结果了"

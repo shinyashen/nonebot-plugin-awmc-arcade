@@ -46,13 +46,18 @@ async def aclose() -> None:
         _client = None
 
 
-async def search_shops(keyword: str, page: int = 1, limit: int = 3) -> dict:
-    """关键词搜索店铺；失败时返回空结果（调用方按「无结果」降级直加）。"""
+async def search_shops(
+    keyword: str, page: int = 1, limit: int = 3, region_id: str | None = None
+) -> dict:
+    """关键词搜索店铺；失败时返回空结果（调用方按「无结果」降级直加）。
+
+    ``region_id``：行政区划过滤（如 CN-3201=南京市），来自 /api/regions 地区树。
+    """
     try:
-        resp = await _http().get(
-            f"{BASE}/api/shops",
-            params={"q": keyword, "page": page, "limit": limit},
-        )
+        params: dict = {"q": keyword, "page": page, "limit": limit}
+        if region_id:
+            params["regionId"] = region_id
+        resp = await _http().get(f"{BASE}/api/shops", params=params)
         resp.raise_for_status()
         data = resp.json()
         return {
@@ -120,3 +125,17 @@ async def upload_attendance(
     except Exception as e:
         logger.warning(f"Nearcade 出勤人数上传失败（{shop_id}）：{e}")
         return -1, str(e)
+
+
+async def region_children(parent_id: str | None = None) -> list[dict]:
+    """地区树子级（locale=zh 中文名；parent_id 缺省为顶层国家列表）。"""
+    try:
+        resp = await _http().get(
+            f"{BASE}/api/regions",
+            params={"parentId": parent_id or "", "locale": "zh"},
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        logger.warning(f"Nearcade 地区树获取失败（{parent_id}）：{e}")
+        return []

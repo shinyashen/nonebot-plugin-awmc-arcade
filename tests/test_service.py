@@ -19,12 +19,8 @@ SHOP = {
 
 def _routes(attendance: int | None = 5, upload_status: int = 200):
     """ ""常用 Nearcade 路由组；attendance=None 表示出勤接口 500。"""
-    respx.get(f"{BASE}/api/shops/123/attendance").respond(
-        json={"total": attendance}
-    )
-    respx.get(f"{BASE}/api/shops/123").respond(
-        json={"shop": {"games": SHOP["games"]}}
-    )
+    respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": attendance})
+    respx.get(f"{BASE}/api/shops/123").respond(json={"shop": {"games": SHOP["games"]}})
     respx.post(f"{BASE}/api/shops/123/attendance").mock(
         return_value=Response(upload_status, json={})
     )
@@ -155,9 +151,7 @@ async def test_apply_count_upload_failures():
 
     entry = await _arcade_with_shop()
     respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": 0})
-    respx.get(f"{BASE}/api/shops/123").respond(
-        json={"shop": {"games": SHOP["games"]}}
-    )
+    respx.get(f"{BASE}/api/shops/123").respond(json={"shop": {"games": SHOP["games"]}})
     post = respx.post(f"{BASE}/api/shops/123/attendance").mock(
         return_value=Response(400, json={})
     )
@@ -413,3 +407,48 @@ async def test_ensure_daily_reset_compensation():
     await store.add_count_log(876, entry.key, 5, "u1")
     await service.ensure_daily_reset()
     assert await store.current_count(876, entry.key) == 5
+
+
+@respx.mock
+async def test_region_filtered_search():
+    """@地区词解析（国名缺省回退中国→逐级下钻）、regionId 过滤与 7 天缓存。"""
+    from nonebot_plugin_awmc_arcade import service, session
+    from nonebot_plugin_awmc_arcade.store import store
+
+    await store.add_group(876)
+
+    def _regions(request):
+        table = {
+            "": [{"id": "CN", "label": "中国"}, {"id": "US", "label": "美国"}],
+            "CN": [
+                {"id": "CN-32", "label": "江苏省"},
+                {"id": "CN-11", "label": "北京市"},
+            ],
+            "CN-32": [{"id": "CN-3201", "label": "南京市"}],
+        }
+        parent = request.url.params.get("parentId") or ""
+        return Response(200, json=table.get(parent, []))
+
+    regions_route = respx.get(f"{BASE}/api/regions").mock(side_effect=_regions)
+    search_route = respx.get(f"{BASE}/api/shops").mock(
+        return_value=Response(200, json={"shops": [SHOP], "totalCount": 1})
+    )
+
+    reply = await service.begin_add_arcade(876, 876, "u1", "天空之城 @南京")
+    assert isinstance(reply, service.AddMenu)
+    assert "（江苏省/南京市）" in reply.nodes[0]
+    sess = session.get(876, "u1")
+    assert sess is not None
+    assert sess.payload["region_id"] == "CN-3201"
+    assert "regionId=CN-3201" in str(search_route.calls.last.request.url)
+
+    # 地区树已缓存：第二位用户同地区查询不再触发 regions 请求
+    first_count = regions_route.call_count
+    reply = await service.begin_add_arcade(876, 876, "u2", "天空之城 @江苏 @南京")
+    assert isinstance(reply, service.AddMenu)
+    assert regions_route.call_count == first_count
+
+    # 未知地区给可选子级提示
+    reply = await service.begin_add_arcade(876, 876, "u3", "天空之城 @雨花台")
+    assert isinstance(reply, str)
+    assert "未找到地区" in reply

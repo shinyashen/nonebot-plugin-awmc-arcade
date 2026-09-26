@@ -155,9 +155,7 @@ async def test_count_update_flow(app: App):
 
     entry = await _open_group_with_arcade()
     with respx.mock:
-        respx.get(f"{BASE}/api/shops/123/attendance").respond(
-            json={"total": 5}
-        )
+        respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": 5})
         respx.get(f"{BASE}/api/shops/123").respond(
             json={"shop": {"games": SHOP["games"]}}
         )
@@ -197,9 +195,7 @@ async def test_silent_mode_suppresses_update(app: App, monkeypatch):
     )
 
     with respx.mock:
-        respx.get(f"{BASE}/api/shops/123/attendance").respond(
-            json={"total": 0}
-        )
+        respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": 0})
         respx.get(f"{BASE}/api/shops/123").respond(
             json={"shop": {"games": SHOP["games"]}}
         )
