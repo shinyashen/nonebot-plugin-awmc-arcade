@@ -1,0 +1,3 @@
+# typos 拼写检查豁免（按原样引用的专有名词，非拼写错误）
+[default.extend-words]
+Rin = "Rin"  # 上游作者名 YuuzukiRin（MIT 版权行）
