@@ -304,8 +304,11 @@ async def _(
             payload={"group_id": gid},
         )
         await add_arcade.finish("请输入机厅名称：")
-    await add_arcade.finish(
-        await service.begin_add_arcade(scope, gid, event.get_user_id(), name)
+    await _reply_search_menu(
+        bot,
+        event,
+        add_arcade,
+        await service.begin_add_arcade(scope, gid, event.get_user_id(), name),
     )
 
 
@@ -834,11 +837,23 @@ _COMMAND_HEADS = (
     "jtj",
     "mai",
 )
-_SEARCH_CHOICES = frozenset("123456")
+_SEARCH_ACTIONS = frozenset(service.SEARCH_ACTIONS)
+
+
+def _valid_search_choice(text: str, pending: session.PendingSession) -> bool:
+    """搜索会话可消费的输入：动作词，或 1~已列出数量的序号。
+
+    超范围/无关数字不消费（不吞消息，其余 matcher 照常处理）。
+    """
+    if text in _SEARCH_ACTIONS:
+        return True
+    if text.isdigit():
+        return 1 <= int(text) <= len(pending.payload.get("shops", []))
+    return False
 
 
 async def _session_rule(state: T_State, event: MessageEvent) -> bool:
-    """会话消费门禁：搜索会话只吃 1-6；追问会话吃任意非指令消息。"""
+    """会话消费门禁：搜索会话吃动作词与有效序号；追问会话吃任意非指令消息。"""
     text = event.raw_message.strip()
     if text.startswith(_COMMAND_HEADS):
         session.pop(_scope(event), event.get_user_id())  # 新指令进入，丢会话
@@ -846,10 +861,25 @@ async def _session_rule(state: T_State, event: MessageEvent) -> bool:
     pending = session.get(_scope(event), event.get_user_id())
     if pending is None:
         return False
-    if pending.kind == session.KIND_SEARCH and text not in _SEARCH_CHOICES:
+    if pending.kind == session.KIND_SEARCH and not _valid_search_choice(text, pending):
         return False
     state["_awmc_arcade_pending"] = pending
     return True
+
+
+async def _reply_search_menu(bot: Bot, event: MessageEvent, matcher, reply) -> None:
+    """回复添加机厅流程：AddMenu 走合并转发（失败降级单条文本），其余直接发。"""
+    if isinstance(reply, service.AddMenu):
+        if await try_send_forward(
+            bot,
+            reply.nodes,
+            group_id=getattr(event, "group_id", None),
+            user_id=event.get_user_id(),
+        ):
+            return
+        await matcher.finish(reply.text)
+        return
+    await matcher.finish(reply)
 
 
 session_consumer = on_message(priority=0, block=True, rule=_session_rule)
@@ -874,14 +904,17 @@ async def _(
         # 选择结果与收尾由 continue_search 全权处理（含内部 pop）
         reply = await service.continue_search(scope, user_id, text)
         if reply is not None:
-            await session_consumer.finish(reply)
+            await _reply_search_menu(bot, event, session_consumer, reply)
         return  # 无效选择静默吞掉（与上游一致）
     session.pop(scope, user_id)
     if gid is None:
         await session_consumer.finish(_NO_TARGET)
     if pending.topic == session.TOPIC_ADD:
-        await session_consumer.finish(
-            await service.begin_add_arcade(scope, gid, user_id, text)
+        await _reply_search_menu(
+            bot,
+            event,
+            session_consumer,
+            await service.begin_add_arcade(scope, gid, user_id, text),
         )
     if pending.topic == session.TOPIC_DELETE:
         await session_consumer.finish(await service.delete_arcade_reply(gid, text))

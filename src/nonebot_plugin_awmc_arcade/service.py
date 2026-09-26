@@ -6,6 +6,7 @@
 
 import re
 from datetime import datetime
+from dataclasses import dataclass
 
 from nonebot import logger
 from nonebot_plugin_awmc_helper.config import plugin_config as awmc_helper_config
@@ -283,19 +284,63 @@ def _search_menu(page: int, shops: list[dict], total: int) -> str:
     return text
 
 
-async def begin_add_arcade(scope: int, group_id: int, user_id: str, name: str) -> str:
-    """添加机厅入口：命中搜索则挂选择会话，否则直接添加。
+# 搜索菜单动作词（非数字——数字专用于选店序号，避免 4/5/6 与店序混淆）
+SEARCH_ACTIONS = ("更多", "原名", "取消")
+# 每页拉取的候选数（合并转发承载长列表；「更多」追加下一页、序号延续）
+SEARCH_PAGE_LIMIT = 10
+
+
+@dataclass
+class AddMenu:
+    """添加机厅搜索菜单：合并转发节点（标题/操作/逐店）+ 降级纯文本。"""
+
+    text: str  # 合并转发不可用时的单条降级文案（内容与节点一致）
+    nodes: list[str]  # 转发节点：[找到 N 家, 操作说明, 机厅…]
+
+
+def _menu_actions(query: str, has_more: bool) -> str:
+    """操作说明：数字只用于选店，动作一律非数字词。"""
+    lines = ["回复序号 选择对应机厅"]
+    if has_more:
+        lines.append("「更多」 查看更多结果")
+    lines.append(f"「原名」 直接添加「{query}」")
+    lines.append("「取消」 放弃操作")
+    return "\n".join(lines)
+
+
+def _build_menu(query: str, total: int, shops: list[dict]) -> AddMenu:
+    """由累计候选构建菜单（合并转发节点 + 同内容降级单条文本）。"""
+    total = max(total, len(shops))
+    has_more = total > len(shops)
+    actions = _menu_actions(query, has_more)
+    shops_text = "\n\n".join(
+        format_shop_info(shop, i) for i, shop in enumerate(shops, 1)
+    )
+    text = f"🔍 找到 {total} 个相关机厅：\n\n{shops_text}\n\n{actions}"
+    nodes = [
+        f"🔍 找到 {total} 个相关机厅",
+        actions,
+        *(format_shop_info(shop, i) for i, shop in enumerate(shops, 1)),
+    ]
+    return AddMenu(text=text, nodes=nodes)
+
+
+async def begin_add_arcade(
+    scope: int, group_id: int, user_id: str, name: str
+) -> "str | AddMenu":
+    """添加机厅入口：命中搜索则挂选择会话并返回菜单，否则直接添加。
 
     ``scope`` 是会话表的键维度（群聊=群号、私聊=0），``group_id`` 是
     落库目标群——私聊扩权时两者不同。
     """
     if await store.get_arcade_by_name(group_id, name):
         return "机厅已在群聊中"
-    result = await nearcade.search_shops(name)
+    result = await nearcade.search_shops(name, limit=SEARCH_PAGE_LIMIT)
     shops = result.get("shops", [])
     if not shops:
         await store.add_arcade(group_id, name, created_by=user_id)
         return f"未找到相关机厅，已直接添加「{name}」到群聊名单中"
+    total = result.get("totalCount", 0)
     session.start(
         session.KIND_SEARCH,
         scope,
@@ -305,11 +350,11 @@ async def begin_add_arcade(scope: int, group_id: int, user_id: str, name: str) -
             "shops": shops,
             "query": name,
             "page": 1,
-            "total": result.get("totalCount", 0),
+            "total": total,
             "created_by": user_id,
         },
     )
-    return _search_menu(1, shops, result.get("totalCount", 0))
+    return _build_menu(name, total, shops)
 
 
 async def _add_from_shop(group_id: int, shop: dict, fallback: str, user_id: str) -> str:
@@ -335,10 +380,14 @@ async def _add_from_shop(group_id: int, shop: dict, fallback: str, user_id: str)
     return reply
 
 
-async def continue_search(scope: int, user_id: str, choice: str) -> str | None:
-    """搜索选择会话续接（1-3 选择 / 4 翻页 / 5 直加原名 / 6 取消）。
+async def continue_search(
+    scope: int, user_id: str, choice: str
+) -> "str | AddMenu | None":
+    """搜索选择会话续接：数字选店 / 「更多」翻页 / 「原名」直加 / 「取消」。
 
+    翻页为**追加**语义——已列出的序号保持不变，新候选延续编号；
     落库目标群取自会话 payload（私聊扩权时 ≠ 会话键 scope）。
+    返回 None 表示输入无效（调用方静默吞掉，与上游一致）。
     """
     sess = session.get(scope, user_id)
     if sess is None or sess.kind != session.KIND_SEARCH:
@@ -351,34 +400,32 @@ async def continue_search(scope: int, user_id: str, choice: str) -> str | None:
     group_id: int = payload["group_id"]
     user_id = payload.get("created_by") or user_id
 
-    if choice == "6":
+    if choice == "取消":
         session.pop(scope, user_id)
         return "❌ 已取消添加操作"
-    if choice == "5":
+    if choice == "原名":
         session.pop(scope, user_id)
         if await store.get_arcade_by_name(group_id, query):
             return f"机厅「{query}」已在群聊中"
         await store.add_arcade(group_id, query, created_by=user_id)
         return f"✅ 已添加机厅：{query}"
-    if choice in ("1", "2", "3"):
-        idx = int(choice) - 1
-        if idx >= len(shops):
-            return None
-        session.pop(scope, user_id)
-        return await _add_from_shop(group_id, shops[idx], query, user_id)
-    if choice == "4":
-        if total <= page * len(shops or [1]):
+    if choice == "更多":
+        if total <= len(shops):
             return "没有更多结果了"
-        result = await nearcade.search_shops(query, page + 1)
+        result = await nearcade.search_shops(query, page + 1, limit=SEARCH_PAGE_LIMIT)
         new_shops = result.get("shops", [])
         if not new_shops:
             return "没有更多结果了"
-        payload.update(
-            shops=new_shops,
-            page=page + 1,
-            total=result.get("totalCount", total),
-        )
-        return _search_menu(page + 1, new_shops, result.get("totalCount", total))
+        shops.extend(new_shops)  # 追加：既有序号保持稳定
+        payload["page"] = page + 1
+        payload["total"] = result.get("totalCount", total)
+        return _build_menu(query, payload["total"], shops)
+    if choice.isdigit():
+        idx = int(choice) - 1
+        if not 0 <= idx < len(shops):
+            return None
+        session.pop(scope, user_id)
+        return await _add_from_shop(group_id, shops[idx], query, user_id)
     return None
 
 

@@ -217,20 +217,38 @@ async def test_begin_add_arcade_search_flow():
     )
 
     reply = await service.begin_add_arcade(876, 876, "u1", "近")
-    assert "Nearcade店" in reply
-    assert "5️⃣" in reply  # 挂会话 + 菜单
+    assert isinstance(reply, service.AddMenu)  # 挂会话 + 菜单
     assert route.called
+    # 节点结构：标题 / 操作说明 / 逐店列表
+    assert reply.nodes[0] == "🔍 找到 4 个相关机厅"  # 展示总数
+    assert "「更多」" in reply.nodes[1]  # 还有 3 家未列出
+    assert "回复序号" in reply.nodes[1]
+    assert "「原名」" in reply.nodes[1]
+    assert reply.nodes[2] == service.format_shop_info(SHOP, 1)
+    assert "Nearcade店" in reply.text
     sess = session.get(876, "u1")
     assert sess is not None
     assert sess.kind == session.KIND_SEARCH
 
-    # 翻页：total=4 > 3，第 2 页返回 1 家
+    # 翻页：total=4，已列 1 家 → 「更多」追加并延续序号
+    page2 = {"shops": [dict(SHOP, id=456, name="第二页店")], "totalCount": 4}
+    respx.get(f"{BASE}/api/shops").mock(
+        return_value=Response(200, json={"shops": page2["shops"], "totalCount": 4})
+    )
+    reply = await service.continue_search(876, "u1", "更多")
+    assert isinstance(reply, service.AddMenu)
+    assert "2️⃣ 第二页店" in reply.text
+    sess = session.get(876, "u1")
+    assert sess is not None
+    assert len(sess.payload["shops"]) == 2
+
+    # 翻页尽头
     respx.get(f"{BASE}/api/shops").mock(
         return_value=Response(200, json={"shops": [], "totalCount": 4})
     )
-    assert await service.continue_search(876, "u1", "4") == "没有更多结果了"
+    assert await service.continue_search(876, "u1", "更多") == "没有更多结果了"
 
-    # 选择 1：落库 + 自动挂链接与地图
+    # 选择 2（第二页店）：落库 + 自动挂链接与地图
     respx.get(f"{BASE}/api/shops").mock(
         return_value=Response(200, json={"shops": [SHOP], "totalCount": 4})
     )
@@ -240,21 +258,23 @@ async def test_begin_add_arcade_search_flow():
         "u1",
         payload={
             "group_id": 876,
-            "shops": [SHOP],
+            "shops": [SHOP, page2["shops"][0]],  # 「更多」追加后的累计列表
             "query": "近",
-            "page": 1,
+            "page": 2,
             "total": 4,
             "created_by": "u1",
         },
     )
-    reply = await service.continue_search(876, "u1", "1")
-    assert reply is not None
-    assert "已添加机厅：Nearcade店" in reply
+    reply = await service.continue_search(876, "u1", "2")
+    assert isinstance(reply, str)
+    assert "已添加机厅：第二页店" in reply
     assert "已添加机厅地图" in reply
-    entry = await store.get_arcade_by_name(876, "Nearcade店")
+    entry = await store.get_arcade_by_name(876, "第二页店")
     assert entry is not None
-    assert entry.nearcade_shop_id == "123"
-    assert await store.list_maps(876, entry.key) == [service.shop_web_url(SHOP)]
+    assert entry.nearcade_shop_id == "456"
+    assert await store.list_maps(876, entry.key) == [
+        service.shop_web_url(page2["shops"][0])
+    ]
     assert session.get(876, "u1") is None  # 会话结束
 
 
@@ -268,11 +288,13 @@ async def test_begin_add_arcade_no_result_direct():
         return_value=Response(200, json={"shops": [], "totalCount": 0})
     )
     reply = await service.begin_add_arcade(876, 876, "u1", "无名店")
+    assert isinstance(reply, str)
     assert "已直接添加「无名店」" in reply
     assert await store.get_arcade_by_name(876, "无名店") is not None
 
     # 重复添加
     reply = await service.begin_add_arcade(876, 876, "u1", "无名店")
+    assert isinstance(reply, str)
     assert "已在群聊中" in reply
 
 
@@ -294,8 +316,8 @@ async def test_continue_search_cancel_and_direct():
             "created_by": "u1",
         },
     )
-    reply = await service.continue_search(876, "u1", "6")
-    assert reply is not None
+    reply = await service.continue_search(876, "u1", "取消")
+    assert isinstance(reply, str)
     assert "已取消" in reply
     assert session.get(876, "u1") is None
 
@@ -312,12 +334,13 @@ async def test_continue_search_cancel_and_direct():
             "created_by": "u1",
         },
     )
-    reply = await service.continue_search(876, "u1", "5")
-    assert reply is not None
+    reply = await service.continue_search(876, "u1", "原名")
+    assert isinstance(reply, str)
     assert "已添加机厅：近" in reply
     assert await store.get_arcade_by_name(876, "近") is not None
-    # 无效选择不回复
+    # 无效选择不回复：超范围序号、未知词
     assert await service.continue_search(876, "u1", "9") is None
+    assert await service.continue_search(876, "u1", "干嘛") is None
 
 
 async def test_manage_replies():

@@ -25,7 +25,9 @@ SHOP = {
 SHOP_MENU = (
     "🔍 找到 1 个相关机厅：\n\n"
     "1️⃣ Nearcade店\n   📍 某路1号\n   🎮 maimai DX（4台）\n\n"
-    "请选择操作：\n1️⃣2️⃣3️⃣ 选择对应机厅\n5️⃣ 直接添加原名称\n6️⃣ 取消操作"
+    "回复序号 选择对应机厅\n"
+    "「原名」 直接添加「近」\n"
+    "「取消」 放弃操作"
 )
 
 
@@ -100,9 +102,16 @@ async def test_group_manage_permission(app: App):
     )
 
 
-async def test_arcade_manage_flow(app: App):
+async def test_arcade_manage_flow(app: App, monkeypatch):
     """未开通群拒绝；搜索会话添加机厅；权限与序号删除。"""
+    import nonebot_plugin_awmc_arcade.matchers as arcade_matchers
     from nonebot_plugin_awmc_arcade import add_arcade, delete_arcade, session_consumer
+
+    # 协议端不支持合并转发 → 菜单降级为单条文本
+    async def _forward_fail(bot, entries, **kwargs):
+        return False
+
+    monkeypatch.setattr(arcade_matchers, "try_send_forward", _forward_fail)
 
     await _reply(
         app,

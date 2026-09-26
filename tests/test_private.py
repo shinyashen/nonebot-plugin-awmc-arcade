@@ -21,7 +21,9 @@ SHOP = {
 SHOP_MENU = (
     "🔍 找到 1 个相关机厅：\n\n"
     "1️⃣ Nearcade店\n   📍 某路1号\n   🎮 maimai DX（4台）\n\n"
-    "请选择操作：\n1️⃣2️⃣3️⃣ 选择对应机厅\n5️⃣ 直接添加原名称\n6️⃣ 取消操作"
+    "回复序号 选择对应机厅\n"
+    "「原名」 直接添加「近」\n"
+    "「取消」 放弃操作"
 )
 
 
@@ -199,6 +201,7 @@ async def test_private_add_arcade_chain(app: App, monkeypatch):
     import nonebot
     from httpx import Response
 
+    import nonebot_plugin_awmc_arcade.matchers as arcade_matchers
     from nonebot_plugin_awmc_arcade import (
         add_arcade,
         manage_group_cmd,
@@ -206,6 +209,10 @@ async def test_private_add_arcade_chain(app: App, monkeypatch):
     )
     from nonebot_plugin_awmc_arcade.store import store
 
+    async def _forward_fail(bot, entries, **kwargs):
+        return False
+
+    monkeypatch.setattr(arcade_matchers, "try_send_forward", _forward_fail)
     monkeypatch.setattr(nonebot.get_driver().config, "superusers", {"10"})
 
     await store.add_group(123456)
