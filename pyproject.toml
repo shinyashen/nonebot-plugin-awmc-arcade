@@ -41,7 +41,7 @@ test = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.10.0,<0.11.0"]
+requires = ["uv_build>=0.10.0"]
 build-backend = "uv_build"
 
 [tool.uv.sources]
@@ -88,6 +88,10 @@ addopts = [
 ]
 testpaths = ["tests"]
 pythonpath = ["src"]
+filterwarnings = [
+  # nonebug 依赖 async_asgi_testclient 在 py3.14 的 stdlib 弃用告警（三方库，等上游适配）
+  "ignore::DeprecationWarning:async_asgi_testclient",
+]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 

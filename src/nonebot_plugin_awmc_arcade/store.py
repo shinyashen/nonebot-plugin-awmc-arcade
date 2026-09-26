@@ -22,7 +22,7 @@ from pathlib import Path
 from datetime import datetime
 
 from pydantic import NaiveDatetime
-from sqlmodel import Field, SQLModel, delete, select
+from sqlmodel import Field, SQLModel, col, delete, select
 from sqlalchemy import UniqueConstraint
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from nonebot_plugin_localstore import get_data_dir
@@ -41,9 +41,15 @@ def db_file():
     )
 
 
-def set_db_file(path: Path | None) -> None:
-    """重定向库文件并重置引擎（测试隔离用，生产勿调）。"""
+async def set_db_file(path: Path | None) -> None:
+    """重定向库文件并重置引擎（测试隔离用，生产勿调）。
+
+    旧引擎先 dispose 归还连接池，否则池内连接被 GC 回收时触发
+    ResourceWarning（aiosqlite 连接未显式关闭）。
+    """
     global _db_file, _engine
+    if _engine is not None:
+        await _engine.dispose()
     _db_file = path
     _engine = None
 
@@ -89,6 +95,12 @@ class ArcadeEntry(SQLModel, table=True):
     coutnum: int = 1
     created_by: str | None = None
     created_at: NaiveDatetime = Field(default_factory=datetime.now)
+
+    @property
+    def key(self) -> int:
+        """主键窄化：从库中读出或落库刷新后的条目 id 恒非空。"""
+        assert self.id is not None
+        return self.id
 
 
 class AliasEntry(SQLModel, table=True):
@@ -188,9 +200,25 @@ class ArcadeStore:
                 )
             ).first():
                 return False
-            for model in (ArcadeEntry, AliasEntry, MapEntry, QueueItem, CountLog):
-                await session.exec(delete(model).where(model.group_id == group_id))
-            await session.exec(delete(GroupCfg).where(GroupCfg.group_id == group_id))
+            # 类型并集循环变量取不到列表达式（col 需要具体模型），逐表展开
+            await session.exec(
+                delete(AliasEntry).where(col(AliasEntry.group_id) == group_id)
+            )
+            await session.exec(
+                delete(MapEntry).where(col(MapEntry.group_id) == group_id)
+            )
+            await session.exec(
+                delete(QueueItem).where(col(QueueItem.group_id) == group_id)
+            )
+            await session.exec(
+                delete(CountLog).where(col(CountLog.group_id) == group_id)
+            )
+            await session.exec(
+                delete(ArcadeEntry).where(col(ArcadeEntry.group_id) == group_id)
+            )
+            await session.exec(
+                delete(GroupCfg).where(col(GroupCfg.group_id) == group_id)
+            )
             await session.commit()
             return True
 
@@ -219,7 +247,7 @@ class ArcadeStore:
                 await session.exec(
                     select(ArcadeEntry)
                     .where(ArcadeEntry.group_id == group_id)
-                    .order_by(ArcadeEntry.id)
+                    .order_by(col(ArcadeEntry.id))
                 )
             )
 
@@ -302,16 +330,35 @@ class ArcadeStore:
     async def delete_arcade(group_id: int, arcade_id: int) -> None:
         """删除机厅并级联清理别名/地图/队列/当日流水。"""
         async with AsyncSession(get_engine()) as session:
-            for model in (AliasEntry, MapEntry, QueueItem, CountLog):
-                await session.exec(
-                    delete(model).where(
-                        model.group_id == group_id, model.arcade_id == arcade_id
-                    )
+            # 类型并集循环变量取不到列表达式（col 需要具体模型），逐表展开
+            await session.exec(
+                delete(AliasEntry).where(
+                    col(AliasEntry.group_id) == group_id,
+                    col(AliasEntry.arcade_id) == arcade_id,
                 )
+            )
+            await session.exec(
+                delete(MapEntry).where(
+                    col(MapEntry.group_id) == group_id,
+                    col(MapEntry.arcade_id) == arcade_id,
+                )
+            )
+            await session.exec(
+                delete(QueueItem).where(
+                    col(QueueItem.group_id) == group_id,
+                    col(QueueItem.arcade_id) == arcade_id,
+                )
+            )
+            await session.exec(
+                delete(CountLog).where(
+                    col(CountLog.group_id) == group_id,
+                    col(CountLog.arcade_id) == arcade_id,
+                )
+            )
             await session.exec(
                 delete(ArcadeEntry).where(
-                    ArcadeEntry.group_id == group_id,
-                    ArcadeEntry.id == arcade_id,
+                    col(ArcadeEntry.group_id) == group_id,
+                    col(ArcadeEntry.id) == arcade_id,
                 )
             )
             await session.commit()
@@ -351,7 +398,7 @@ class ArcadeStore:
                     AliasEntry.group_id == group_id,
                     AliasEntry.arcade_id == arcade_id,
                 )
-                .order_by(AliasEntry.id)
+                .order_by(col(AliasEntry.id))
             )
             return [r.alias for r in rows]
 
@@ -401,7 +448,7 @@ class ArcadeStore:
                     MapEntry.group_id == group_id,
                     MapEntry.arcade_id == arcade_id,
                 )
-                .order_by(MapEntry.id)
+                .order_by(col(MapEntry.id))
             )
             return [r.url for r in rows]
 
@@ -453,7 +500,7 @@ class ArcadeStore:
                         QueueItem.group_id == group_id,
                         QueueItem.arcade_id == arcade_id,
                     )
-                    .order_by(QueueItem.joined_at, QueueItem.id)
+                    .order_by(col(QueueItem.joined_at), col(QueueItem.id))
                 )
             )
 
@@ -527,11 +574,11 @@ class ArcadeStore:
                         QueueItem.group_id == group_id,
                         QueueItem.arcade_id == arcade_id,
                     )
-                    .order_by(QueueItem.joined_at, QueueItem.id)
+                    .order_by(col(QueueItem.joined_at), col(QueueItem.id))
                 )
             ).all()
             now = datetime.now()
-            for i, item in enumerate(items[1:] + items[:1]):
+            for i, item in enumerate([*items[1:], *items[:1]]):
                 item.joined_at = now.replace(microsecond=i)
             await session.commit()
 
@@ -555,9 +602,9 @@ class ArcadeStore:
                     .where(
                         QueueItem.group_id == group_id,
                         QueueItem.arcade_id == item.arcade_id,
-                        QueueItem.joined_at > item.joined_at,
+                        col(QueueItem.joined_at) > item.joined_at,
                     )
-                    .order_by(QueueItem.joined_at, QueueItem.id)
+                    .order_by(col(QueueItem.joined_at), col(QueueItem.id))
                     .limit(1)
                 )
             ).first()
@@ -607,7 +654,7 @@ class ArcadeStore:
                         CountLog.group_id == group_id,
                         CountLog.arcade_id == arcade_id,
                     )
-                    .order_by(CountLog.id.desc())
+                    .order_by(col(CountLog.id).desc())
                     .limit(1)
                 )
             ).first()
@@ -635,8 +682,8 @@ class ArcadeStore:
         async with AsyncSession(get_engine()) as session:
             await session.exec(
                 delete(CountLog).where(
-                    CountLog.group_id == group_id,
-                    CountLog.arcade_id == arcade_id,
+                    col(CountLog.group_id) == group_id,
+                    col(CountLog.arcade_id) == arcade_id,
                 )
             )
             session.add(

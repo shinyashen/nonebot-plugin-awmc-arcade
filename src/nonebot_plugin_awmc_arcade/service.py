@@ -68,7 +68,7 @@ async def compute_count(
 ) -> tuple[int, int, int] | str:
     """人数换算，返回 (当前值, 新值, 实际增量)；非法时返回错误文案。"""
     cfg = plugin_config
-    current = await store.current_count(entry.group_id, entry.id)
+    current = await store.current_count(entry.group_id, entry.key)
     # 单次变更上限复用主插件同名配置（内置排卡同语义，单一来源）
     max_delta = awmc_helper_config.awmc_arcade_max_delta
     if op in (OP_INC, OP_DEC):
@@ -88,7 +88,7 @@ async def _shop_id_of(entry: ArcadeEntry) -> str | None:
     """店铺 id：优先条目缓存，其次按添加顺序扫描地图网址提取。"""
     if entry.nearcade_shop_id:
         return entry.nearcade_shop_id
-    for url in await store.list_maps(entry.group_id, entry.id):
+    for url in await store.list_maps(entry.group_id, entry.key):
         if sid := shop_id_from_url(url):
             return sid
     return None
@@ -157,7 +157,7 @@ async def apply_count_update(
     if isinstance(computed, str):
         return computed
     current, new_num, _delta = computed
-    group_id, arcade_id = entry.group_id, entry.id
+    group_id, arcade_id = entry.group_id, entry.key
     now = datetime.now().strftime("%H:%M")
 
     shop_id = await _shop_id_of(entry)
@@ -206,7 +206,7 @@ async def apply_count_update(
 
 async def count_query_reply(entry: ArcadeEntry) -> str:
     """「XX几/几人/j」查询：云端有新数据时先对齐再作答。"""
-    group_id, arcade_id = entry.group_id, entry.id
+    group_id, arcade_id = entry.group_id, entry.key
     shop_id = await _shop_id_of(entry)
     if shop_id:
         cloud = await nearcade.get_attendance(shop_id)
@@ -232,10 +232,10 @@ async def updated_today_reply(group_id: int) -> str:
     """「mai/机厅人数」：当日有更新记录的机厅列表。"""
     lines = []
     for entry in await store.list_arcades(group_id):
-        last = await store.last_count_update(group_id, entry.id)
+        last = await store.last_count_update(group_id, entry.key)
         if last is None:
             continue
-        count = await store.current_count(group_id, entry.id)
+        count = await store.current_count(group_id, entry.key)
         by = last.updated_by or "未知"
         lines.append(
             f"[{entry.name}] {count}人 \n（{by} · {last.updated_at.strftime('%H:%M')}）"
@@ -327,9 +327,10 @@ async def _add_from_shop(group_id: int, shop: dict, fallback: str, user_id: str)
         shop_id=shop_id,
         shop_url=url or None,
     )
+    assert entry is not None  # 上方已查重，同事件循环内无竞态
     reply = f"✅ 已添加机厅：{name}"
     if url:
-        await store.add_map(group_id, entry.id, url)
+        await store.add_map(group_id, entry.key, url)
         reply += f"\n🔗 详情链接：{url}\n🗺️ 已添加机厅地图"
     return reply
 
@@ -388,7 +389,7 @@ async def delete_arcade_reply(group_id: int, text: str) -> str:
     entry = await resolve_arcade(group_id, text, by_alias=False)
     if entry is None:
         return "机厅不在群聊中或为机厅别名，请先添加该机厅或使用该机厅本名"
-    await store.delete_arcade(group_id, entry.id)
+    await store.delete_arcade(group_id, entry.key)
     return f"已从群聊名单中删除机厅：{entry.name}"
 
 
@@ -406,7 +407,7 @@ async def alias_list_reply(group_id: int, text: str) -> str:
     entry = await resolve_arcade(group_id, text)
     if entry is None:
         return f"找不到机厅或机厅别名为「{text.strip()}」的相关信息"
-    aliases = await store.list_aliases(group_id, entry.id)
+    aliases = await store.list_aliases(group_id, entry.key)
     if not aliases:
         return f"机厅「{entry.name}」尚未添加别名"
     body = "\n".join(f"{i}. {a}" for i, a in enumerate(aliases, 1))
@@ -417,7 +418,7 @@ async def map_list_reply(group_id: int, text: str) -> str:
     entry = await resolve_arcade(group_id, text)
     if entry is None:
         return f"找不到机厅或机厅别名为「{text.strip()}」的相关信息"
-    maps = await store.list_maps(group_id, entry.id)
+    maps = await store.list_maps(group_id, entry.key)
     if not maps:
         return f"机厅「{entry.name}」尚未添加地图网址"
     body = "\n".join(f"{i}. {u}" for i, u in enumerate(maps, 1))

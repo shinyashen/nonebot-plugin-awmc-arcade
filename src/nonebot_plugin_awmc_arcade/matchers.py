@@ -403,7 +403,7 @@ async def _(
         await add_alias.finish(
             f"店名 '{name}' 不在群聊中或为机厅别名，请先添加该机厅或使用该机厅本名"
         )
-    if await store.add_alias(gid, entry.id, alias):
+    if await store.add_alias(gid, entry.key, alias):
         await add_alias.finish(f"已成功为 '{entry.name}' 添加别名 '{alias}'")
     await add_alias.finish(f"别名 '{alias}' 已存在，请使用其他别名")
 
@@ -435,11 +435,11 @@ async def _(
         await delete_alias.finish(
             f"店名 '{name}' 不在群聊中或为机厅别名，请先添加该机厅或使用该机厅本名"
         )
-    aliases = await store.list_aliases(gid, entry.id)
+    aliases = await store.list_aliases(gid, entry.key)
     alias = await service.resolve_from_list(aliases, alias_ref)
     if alias is None:
         await delete_alias.finish(f"别名 '{alias_ref}' 不存在，请检查输入的别名")
-    await store.remove_alias(gid, entry.id, alias)
+    await store.remove_alias(gid, entry.key, alias)
     await delete_alias.finish(f"已成功删除 '{entry.name}' 的别名 '{alias}'")
 
 
@@ -509,7 +509,7 @@ async def _(
         await add_map.finish(
             f"机厅 '{name}' 不在群聊中或为机厅别名，请先添加该机厅或使用该机厅本名"
         )
-    if await store.add_map(gid, entry.id, url):
+    if await store.add_map(gid, entry.key, url):
         await add_map.finish(f"已成功为 '{entry.name}' 添加机厅地图网址 '{url}'")
     await add_map.finish(f"网址 '{url}' 已存在于机厅地图中")
 
@@ -541,13 +541,13 @@ async def _(
         await delete_map.finish(
             f"机厅 '{name}' 不在群聊中或为机厅别名，请先添加该机厅或使用该机厅本名"
         )
-    maps = await store.list_maps(gid, entry.id)
+    maps = await store.list_maps(gid, entry.key)
     if not maps:
         await delete_map.finish(f"机厅 '{entry.name}' 没有添加过任何地图网址")
     url = await service.resolve_from_list(maps, url_ref)
     if url is None:
         await delete_map.finish(f"网址 '{url_ref}' 不在机厅地图中")
-    await store.remove_map(gid, entry.id, url)
+    await store.remove_map(gid, entry.key, url)
     await delete_map.finish(f"已成功从 '{entry.name}' 删除机厅地图网址 '{url}'")
 
 
@@ -674,12 +674,12 @@ async def _(event: GroupMessageEvent):
     if position is None:
         await go_on.finish("您尚未排卡")
     entry, item = position
-    queue = await store.list_queue(event.group_id, entry.id)
+    queue = await store.list_queue(event.group_id, entry.key)
     if queue[0].id != item.id:
         await go_on.finish("暂时未到您,请耐心等待")
     if len(queue) == 1:
         await go_on.finish(f"收到,{entry.name}机厅人数1人,您可以爽霸啦")
-    await store.rotate_queue(event.group_id, entry.id)
+    await store.rotate_queue(event.group_id, entry.key)
     await go_on.finish(
         f"收到，已将{entry.name}机厅中{item.nickname}"
         f"移至最后一位,下一位上机的是{queue[1].nickname},当前一共有{len(queue)}人"
@@ -701,9 +701,12 @@ async def _(
     if entry is None:
         await get_in.finish("没有该机厅，请使用添加机厅功能添加")
     await store.join_queue(
-        event.group_id, entry.id, event.get_user_id(), event.sender.nickname
+        event.group_id,
+        entry.key,
+        event.get_user_id(),
+        event.sender.nickname or str(event.user_id),
     )
-    queue = await store.list_queue(event.group_id, entry.id)
+    queue = await store.list_queue(event.group_id, entry.key)
     await get_in.finish(f"收到，您已加入排卡。当前您位于第{len(queue)}位。")
 
 
@@ -741,7 +744,7 @@ async def _(
     entry = await service.resolve_arcade(gid, name)
     if entry is None:
         await show_list.finish("没有该机厅，若需要可使用添加机厅功能")
-    queue = await store.list_queue(gid, entry.id)
+    queue = await store.list_queue(gid, entry.key)
     lines = [f"第{i}位：{item.nickname}" for i, item in enumerate(queue, 1)]
     await show_list.finish(f"{entry.name}机厅排卡如下：\n" + "\n".join(lines))
 
@@ -753,7 +756,7 @@ async def _(event: GroupMessageEvent):
     if position is None:
         await put_off.finish("您尚未排卡")
     entry, item = position
-    queue = await store.list_queue(event.group_id, entry.id)
+    queue = await store.list_queue(event.group_id, entry.key)
     index = next(i for i, q in enumerate(queue) if q.id == item.id)
     if index + 1 >= len(queue):
         await put_off.finish("您无需延后")
@@ -787,7 +790,7 @@ async def _(
     entry = await service.resolve_arcade(gid, name)
     if entry is None:
         await shut_down.finish("没有该机厅，若需要可使用添加机厅功能")
-    await store.clear_queue(gid, entry.id)
+    await store.clear_queue(gid, entry.key)
     await shut_down.finish("闭店成功，当前排队 0 人")
 
 

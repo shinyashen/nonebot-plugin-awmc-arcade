@@ -4,6 +4,8 @@ SU 直通不触发 API；群管理员经 get_group_member_info 直查（300 秒�
 成员被拒；bot 不在目标群时给友好提示。
 """
 
+from collections.abc import Sequence
+
 from nonebug import App
 
 BASE = "https://nearcade.cn"
@@ -41,7 +43,7 @@ async def _run(
     matcher,
     event,
     reply: str | None = None,
-    apis: list[tuple] = (),
+    apis: Sequence[tuple] = (),
 ):
     """执行单事件：apis 依次声明期望的 API 调用 (name, data, result, exception)。"""
     import nonebot
@@ -229,6 +231,7 @@ async def test_private_add_arcade_chain(app: App, monkeypatch):
 
     entry = await store.get_arcade_by_name(123456, "Nearcade店")
     assert entry is not None
+    assert entry.id is not None
 
 
 async def test_private_delete_arcade_ask(app: App, monkeypatch):
@@ -241,6 +244,7 @@ async def test_private_delete_arcade_ask(app: App, monkeypatch):
     monkeypatch.setattr(nonebot.get_driver().config, "superusers", {"10"})
     await store.add_group(123456)
     entry = await store.add_arcade(123456, "测试店")
+    assert entry is not None
 
     await _run(
         app,
@@ -254,7 +258,7 @@ async def test_private_delete_arcade_ask(app: App, monkeypatch):
         _private_event("测试店"),
         "已从群聊名单中删除机厅：测试店",
     )
-    assert await store.get_arcade(123456, entry.id) is None
+    assert await store.get_arcade(123456, entry.key) is None
 
 
 async def test_private_silent_superuser(app: App, monkeypatch):
@@ -272,7 +276,9 @@ async def test_private_silent_superuser(app: App, monkeypatch):
         _private_event("静默监听模式 123456"),
         "已开启静默监听模式：人数上报不再回复，仅同步云端",
     )
-    assert (await store.get_group(123456)).silent is True
+    cfg = await store.get_group(123456)
+    assert cfg is not None
+    assert cfg.silent is True
 
     # 非 SU 私聊根本不触发 SUPERUSER matcher
     await _run(app, silent_on, _private_event("静默监听模式 123456", user_id=222))

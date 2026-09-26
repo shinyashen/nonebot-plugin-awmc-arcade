@@ -36,10 +36,10 @@ async def _stores(tmp_path):
     from nonebot_plugin_awmc_arcade.store import init_store, set_db_file
     from nonebot_plugin_awmc_arcade.matchers import _admin_cache
 
-    set_db_file(tmp_path / "arcade.db")
+    await set_db_file(tmp_path / "arcade.db")
     await init_store()
     yield
-    set_db_file(None)
+    await set_db_file(None)
     session._sessions.clear()
     session._manage.clear()
     _admin_cache.clear()

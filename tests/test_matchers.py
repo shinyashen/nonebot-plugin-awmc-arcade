@@ -33,12 +33,14 @@ async def _open_group_with_arcade(name: str = "测试店", shop: bool = True):
     from nonebot_plugin_awmc_arcade.store import store
 
     await store.add_group(87654321)
-    return await store.add_arcade(
+    entry = await store.add_arcade(
         87654321,
         name,
         created_by="u0",
         **({"shop_id": "123", "source": "bemanicn"} if shop else {}),
     )
+    assert entry is not None
+    return entry
 
 
 def _event(raw: str, *, role: str = "member", user_id: int = 12345678, nickname="test"):
@@ -163,7 +165,7 @@ async def test_count_update_flow(app: App):
 
     from nonebot_plugin_awmc_arcade.store import store
 
-    assert await store.current_count(87654321, entry.id) == 7
+    assert await store.current_count(87654321, entry.key) == 7
 
     await _reply(app, count_update, _event("测试店+99"), "检测到非法数值，拒绝更新")
     await _no_reply(app, count_update, _event("随便聊聊"))

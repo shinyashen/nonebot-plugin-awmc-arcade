@@ -35,6 +35,7 @@ async def _arcade_with_shop(**kw):
 
     await store.add_group(876)
     entry = await store.add_arcade(876, "测试店", shop_id="123", source="bemanicn")
+    assert entry is not None
     return entry
 
 
@@ -71,10 +72,16 @@ async def test_resolve_arcade_index_name_alias():
     from nonebot_plugin_awmc_arcade.store import store
 
     entry = await _arcade_with_shop()
-    await store.add_alias(876, entry.id, "甲店")
-    assert (await service.resolve_arcade(876, "1")).id == entry.id
-    assert (await service.resolve_arcade(876, "测试店")).id == entry.id
-    assert (await service.resolve_arcade(876, "甲店")).id == entry.id
+    await store.add_alias(876, entry.key, "甲店")
+    r1 = await service.resolve_arcade(876, "1")
+    r2 = await service.resolve_arcade(876, "测试店")
+    r3 = await service.resolve_arcade(876, "甲店")
+    assert r1 is not None
+    assert r2 is not None
+    assert r3 is not None
+    assert r1.id == entry.key
+    assert r2.id == entry.key
+    assert r3.id == entry.key
     # 管理操作不接受别名
     assert await service.resolve_arcade(876, "甲店", by_alias=False) is None
     assert await service.resolve_arcade(876, "不存在") is None
@@ -86,17 +93,20 @@ async def test_apply_count_local_only():
 
     await store.add_group(876)
     entry = await store.add_arcade(876, "测试店")  # 无店铺关联
+    assert entry is not None
     with respx.mock:
         reply = await service.apply_count_update(
             entry, service.OP_INC, 2, "小明", silent=False
         )
+    assert reply is not None
     assert "当前人数更新为 2" in reply
     assert "小明" in reply
-    assert await store.current_count(876, entry.id) == 2
+    assert await store.current_count(876, entry.key) == 2
     # 越界错误文案
     reply = await service.apply_count_update(
         entry, service.OP_SET, 999, "小明", silent=False
     )
+    assert reply is not None
     assert "拒绝更新" in reply
 
 
@@ -112,23 +122,25 @@ async def test_apply_count_cloud_merge_and_upload():
     reply = await service.apply_count_update(
         entry, service.OP_INC, 2, "小明", silent=False
     )
-    assert await store.current_count(876, entry.id) == 7
+    assert reply is not None
+    assert await store.current_count(876, entry.key) == 7
     assert "感谢使用，机厅人数已上传 Nearcade" in reply
     assert "无需等待" in reply
-    await store.reset_count(876, entry.id, 0, None)
+    await store.reset_count(876, entry.key, 0, None)
 
     # 队列等待估算：设为 10（每轮 8 人 → 2 人排队）
     respx.get(f"{BASE}/api/shops/bemanicn/123/attendance").respond(json={"total": 10})
     reply = await service.apply_count_update(
         entry, service.OP_SET, 10, "小明", silent=False
     )
+    assert reply is not None
     assert "预计等待" in reply
     assert "每轮 8 人" in reply
 
     # 显式设置为绝对值：云端不同也不合并
     respx.get(f"{BASE}/api/shops/bemanicn/123/attendance").respond(json={"total": 99})
     await service.apply_count_update(entry, service.OP_SET, 3, "小明", silent=False)
-    assert await store.current_count(876, entry.id) == 3
+    assert await store.current_count(876, entry.key) == 3
 
     # 静默模式吞掉确认
     reply = await service.apply_count_update(
@@ -152,12 +164,14 @@ async def test_apply_count_upload_failures():
     reply = await service.apply_count_update(
         entry, service.OP_SET, 4, "小明", silent=False
     )
+    assert reply is not None
     assert "关门了" in reply
 
     post.mock(return_value=Response(500, text="boom"))
     reply = await service.apply_count_update(
         entry, service.OP_SET, 4, "小明", silent=False
     )
+    assert reply is not None
     assert "上传失败" in reply
 
 
@@ -176,7 +190,7 @@ async def test_count_query_and_cloud_align():
     reply = await service.count_query_reply(entry)
     assert "人数为 6" in reply
     assert "Nearcade" in reply
-    assert await store.current_count(876, entry.id) == 6
+    assert await store.current_count(876, entry.key) == 6
 
 
 async def test_updated_today_reply():
@@ -186,7 +200,7 @@ async def test_updated_today_reply():
     await store.add_group(876)
     entry = await _arcade_with_shop()
     assert "暂无更新记录" in await service.updated_today_reply(876)
-    await store.add_count_log(876, entry.id, 4, "小明")
+    await store.add_count_log(876, entry.key, 4, "小明")
     reply = await service.updated_today_reply(876)
     assert "[测试店] 4人" in reply
     assert "小明" in reply
@@ -234,11 +248,13 @@ async def test_begin_add_arcade_search_flow():
         },
     )
     reply = await service.continue_search(876, "u1", "1")
+    assert reply is not None
     assert "已添加机厅：Nearcade店" in reply
     assert "已添加机厅地图" in reply
     entry = await store.get_arcade_by_name(876, "Nearcade店")
+    assert entry is not None
     assert entry.nearcade_shop_id == "123"
-    assert await store.list_maps(876, entry.id) == [service.shop_web_url(SHOP)]
+    assert await store.list_maps(876, entry.key) == [service.shop_web_url(SHOP)]
     assert session.get(876, "u1") is None  # 会话结束
 
 
@@ -278,7 +294,9 @@ async def test_continue_search_cancel_and_direct():
             "created_by": "u1",
         },
     )
-    assert "已取消" in await service.continue_search(876, "u1", "6")
+    reply = await service.continue_search(876, "u1", "6")
+    assert reply is not None
+    assert "已取消" in reply
     assert session.get(876, "u1") is None
 
     session.start(
@@ -294,7 +312,9 @@ async def test_continue_search_cancel_and_direct():
             "created_by": "u1",
         },
     )
-    assert "已添加机厅：近" in await service.continue_search(876, "u1", "5")
+    reply = await service.continue_search(876, "u1", "5")
+    assert reply is not None
+    assert "已添加机厅：近" in reply
     assert await store.get_arcade_by_name(876, "近") is not None
     # 无效选择不回复
     assert await service.continue_search(876, "u1", "9") is None
@@ -305,8 +325,8 @@ async def test_manage_replies():
     from nonebot_plugin_awmc_arcade.store import store
 
     entry = await _arcade_with_shop()
-    await store.add_alias(876, entry.id, "甲店")
-    await store.add_map(876, entry.id, "https://nearcade.cn/shops/bemanicn/123")
+    await store.add_alias(876, entry.key, "甲店")
+    await store.add_map(876, entry.key, "https://nearcade.cn/shops/bemanicn/123")
 
     # 管理删除：本名/序号可定位，别名不可
     assert "不在群聊中或为机厅别名" in await service.delete_arcade_reply(876, "甲店")
@@ -315,14 +335,22 @@ async def test_manage_replies():
     )
 
     e2 = await store.add_arcade(876, "店二")
-    await store.add_alias(876, e2.id, "乙")
+    assert e2 is not None
+    await store.add_alias(876, e2.key, "乙")
     reply = await service.alias_list_reply(876, "店二")
+    assert reply is not None
     assert "别名列表" in reply
     assert "乙" in reply
-    assert "尚未添加地图网址" in await service.map_list_reply(876, "店二")
-    await store.add_map(876, e2.id, "https://example.com/map")
-    assert "example.com/map" in await service.map_list_reply(876, "店二")
-    assert "找不到" in await service.alias_list_reply(876, "不存在")
+    reply = await service.map_list_reply(876, "店二")
+    assert reply is not None
+    assert "尚未添加地图网址" in reply
+    await store.add_map(876, e2.key, "https://example.com/map")
+    reply = await service.map_list_reply(876, "店二")
+    assert reply is not None
+    assert "example.com/map" in reply
+    reply = await service.alias_list_reply(876, "不存在")
+    assert reply is not None
+    assert "找不到" in reply
 
     # 列表内序号解析
     assert await service.resolve_from_list(["a", "b"], "2") == "b"
@@ -339,6 +367,7 @@ async def test_discover_reply():
         ]
     }
     reply = service.discover_reply(data, f"{BASE}/discover?x=1")
+    assert reply is not None
     assert "A店（500米）" in reply
     assert "B店（未知距离）" in reply
     assert service.discover_reply({"shops": []}, f"{BASE}/d") is not None
@@ -351,13 +380,13 @@ async def test_ensure_daily_reset_compensation():
 
     await store.add_group(876)
     entry = await _arcade_with_shop()
-    await store.add_count_log(876, entry.id, 2, "u1")
+    await store.add_count_log(876, entry.key, 2, "u1")
     # 标记为昨天 → 补偿清零
     await store.set_meta(service._RESET_MARK, "2000-01-01")
     await service.ensure_daily_reset()
-    assert await store.current_count(876, entry.id) == 0
+    assert await store.current_count(876, entry.key) == 0
     assert await store.get_meta(service._RESET_MARK) != "2000-01-01"
     # 当天已清 → 不重复处理
-    await store.add_count_log(876, entry.id, 5, "u1")
+    await store.add_count_log(876, entry.key, 5, "u1")
     await service.ensure_daily_reset()
-    assert await store.current_count(876, entry.id) == 5
+    assert await store.current_count(876, entry.key) == 5
