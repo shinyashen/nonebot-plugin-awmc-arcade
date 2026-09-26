@@ -9,6 +9,10 @@
 - 位置发现（附近机厅）
 - 店铺详情（maimai DX 机台数、gameId）
 - 出勤人数读取 / 上传（人数云同步）
+
+⚠️ Nearcade 的数字 id 是**全局 id**，与 `/shops/{source}/{数字}` 网页里
+按数据源（bemanicn 等）隔离的编号空间**无关**——所有接口一律走无 source
+的全局路径（实测带 source 会命中完全不同的店铺，2026-09-27 踩坑）。
 """
 
 import httpx
@@ -83,7 +87,7 @@ async def discover(
 async def get_shop(shop_id: str) -> dict | None:
     """店铺详情（games 含 gameId 与各机种 quantity）；失败返回 None。"""
     try:
-        resp = await _http().get(f"{BASE}/api/shops/bemanicn/{shop_id}")
+        resp = await _http().get(f"{BASE}/api/shops/{shop_id}")
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
@@ -94,7 +98,7 @@ async def get_shop(shop_id: str) -> dict | None:
 async def get_attendance(shop_id: str) -> int | None:
     """云端当前出勤人数；失败返回 None。"""
     try:
-        resp = await _http().get(f"{BASE}/api/shops/bemanicn/{shop_id}/attendance")
+        resp = await _http().get(f"{BASE}/api/shops/{shop_id}/attendance")
         resp.raise_for_status()
         return int(resp.json().get("total", 0))
     except Exception as e:
@@ -108,7 +112,7 @@ async def upload_attendance(
     """上传出勤人数，返回 (HTTP 状态码, 响应文本)。"""
     try:
         resp = await _http().post(
-            f"{BASE}/api/shops/bemanicn/{shop_id}/attendance",
+            f"{BASE}/api/shops/{shop_id}/attendance",
             json={"games": [{"id": game_id, "currentAttendances": count}]},
             headers={"Authorization": f"Bearer {token}"},
         )

@@ -24,7 +24,7 @@ SHOP = {
 
 SHOP_MENU = (
     "🔍 找到 1 个相关机厅：\n\n"
-    "1️⃣ Nearcade店\n   📍 某路1号\n   🎮 maimai DX（4台）\n\n"
+    "1. Nearcade店\n   📍 某路1号\n   🎮 maimai DX（4台）\n\n"
     "回复序号 选择对应机厅\n"
     "「原名」 直接添加「近」\n"
     "「取消」 放弃操作"
@@ -131,7 +131,7 @@ async def test_arcade_manage_flow(app: App, monkeypatch):
         session_consumer,
         _event("1"),
         "✅ 已添加机厅：Nearcade店\n"
-        "🔗 详情链接：https://nearcade.cn/shops/bemanicn/123\n🗺️ 已添加机厅地图",
+        "🔗 详情链接：https://nearcade.cn/shops/123\n🗺️ 已添加机厅地图",
     )
 
     await _reply(app, delete_arcade, _event("删除机厅 2"), "只有管理员能够删除机厅")
@@ -155,13 +155,13 @@ async def test_count_update_flow(app: App):
 
     entry = await _open_group_with_arcade()
     with respx.mock:
-        respx.get(f"{BASE}/api/shops/bemanicn/123/attendance").respond(
+        respx.get(f"{BASE}/api/shops/123/attendance").respond(
             json={"total": 5}
         )
-        respx.get(f"{BASE}/api/shops/bemanicn/123").respond(
+        respx.get(f"{BASE}/api/shops/123").respond(
             json={"shop": {"games": SHOP["games"]}}
         )
-        respx.post(f"{BASE}/api/shops/bemanicn/123/attendance").mock(
+        respx.post(f"{BASE}/api/shops/123/attendance").mock(
             return_value=Response(200, json={})
         )
         await _reply(
@@ -197,13 +197,13 @@ async def test_silent_mode_suppresses_update(app: App, monkeypatch):
     )
 
     with respx.mock:
-        respx.get(f"{BASE}/api/shops/bemanicn/123/attendance").respond(
+        respx.get(f"{BASE}/api/shops/123/attendance").respond(
             json={"total": 0}
         )
-        respx.get(f"{BASE}/api/shops/bemanicn/123").respond(
+        respx.get(f"{BASE}/api/shops/123").respond(
             json={"shop": {"games": SHOP["games"]}}
         )
-        respx.post(f"{BASE}/api/shops/bemanicn/123/attendance").mock(
+        respx.post(f"{BASE}/api/shops/123/attendance").mock(
             return_value=Response(200, json={})
         )
         await _no_reply(app, count_update, _event("测试店+1"))

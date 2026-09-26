@@ -20,7 +20,7 @@ SHOP = {
 
 SHOP_MENU = (
     "🔍 找到 1 个相关机厅：\n\n"
-    "1️⃣ Nearcade店\n   📍 某路1号\n   🎮 maimai DX（4台）\n\n"
+    "1. Nearcade店\n   📍 某路1号\n   🎮 maimai DX（4台）\n\n"
     "回复序号 选择对应机厅\n"
     "「原名」 直接添加「近」\n"
     "「取消」 放弃操作"
@@ -233,7 +233,7 @@ async def test_private_add_arcade_chain(app: App, monkeypatch):
         session_consumer,
         _private_event("1"),
         "✅ 已添加机厅：Nearcade店\n"
-        "🔗 详情链接：https://nearcade.cn/shops/bemanicn/123\n🗺️ 已添加机厅地图",
+        "🔗 详情链接：https://nearcade.cn/shops/123\n🗺️ 已添加机厅地图",
     )
 
     entry = await store.get_arcade_by_name(123456, "Nearcade店")

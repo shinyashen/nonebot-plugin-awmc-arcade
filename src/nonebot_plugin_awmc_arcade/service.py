@@ -177,14 +177,16 @@ async def apply_count_update(
     else:
         await store.add_count_log(group_id, arcade_id, new_num - current, user_name)
 
-    # 机台数与上传 gameId 同源自一次店铺详情请求
+    # 机台数与上传 gameId 同源自一次店铺详情请求；上传必须挂在
+    # maimai DX 机种上（店铺详情 games[0] 可能是太鼓等其他机种，
+    # 数错格会把人数写进别的游戏的出勤计数）
     games = await _shop_games(shop_id)
     game_id = next((g.get("gameId") for g in games), None)
+    maimai_game = next((g for g in games if g.get("name") == "maimai DX"), None)
     coutnum = entry.coutnum
-    for game in games:
-        if game.get("name") == "maimai DX":
-            coutnum = max(int(game.get("quantity", 1) or 1), 1)
-            break
+    if maimai_game is not None:
+        coutnum = max(int(maimai_game.get("quantity", 1) or 1), 1)
+        game_id = maimai_game.get("gameId")
     if coutnum != entry.coutnum:
         await store.update_nearcade_info(arcade_id, coutnum=coutnum)
     msg = estimate_msg(entry.name, new_num, coutnum, updated=True)
@@ -259,15 +261,15 @@ def format_shop_info(shop: dict, index: int) -> str:
         if g.get("quantity", 0) > 0
     ]
     games_str = " | ".join(games[:2]) if games else "游戏信息未知"
-    return f"{index}️⃣ {name}\n   📍 {address}\n   🎮 {games_str}"
+    return f"{index}. {name}\n   📍 {address}\n   🎮 {games_str}"
 
 
 def shop_web_url(shop: dict) -> str:
-    """Nearcade 店铺网页链接。"""
+    """Nearcade 店铺网页链接（全局 id，无 source——见 nearcade.py 模块注记）。"""
     shop_id = shop.get("id")
     if not shop_id:
         return ""
-    return f"https://nearcade.cn/shops/{shop.get('source', 'bemanicn')}/{shop_id}"
+    return f"https://nearcade.cn/shops/{shop_id}"
 
 
 def _search_menu(page: int, shops: list[dict], total: int) -> str:
@@ -368,7 +370,7 @@ async def _add_from_shop(group_id: int, shop: dict, fallback: str, user_id: str)
         group_id,
         name,
         created_by=user_id,
-        source=shop.get("source", "bemanicn"),
+        source=shop.get("source"),  # 搜索结果国内店多为 None，仅留档不作链接依据
         shop_id=shop_id,
         shop_url=url or None,
     )

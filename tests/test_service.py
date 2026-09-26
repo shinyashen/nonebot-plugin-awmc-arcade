@@ -19,13 +19,13 @@ SHOP = {
 
 def _routes(attendance: int | None = 5, upload_status: int = 200):
     """ ""常用 Nearcade 路由组；attendance=None 表示出勤接口 500。"""
-    respx.get(f"{BASE}/api/shops/bemanicn/123/attendance").respond(
+    respx.get(f"{BASE}/api/shops/123/attendance").respond(
         json={"total": attendance}
     )
-    respx.get(f"{BASE}/api/shops/bemanicn/123").respond(
+    respx.get(f"{BASE}/api/shops/123").respond(
         json={"shop": {"games": SHOP["games"]}}
     )
-    respx.post(f"{BASE}/api/shops/bemanicn/123/attendance").mock(
+    respx.post(f"{BASE}/api/shops/123/attendance").mock(
         return_value=Response(upload_status, json={})
     )
 
@@ -129,7 +129,7 @@ async def test_apply_count_cloud_merge_and_upload():
     await store.reset_count(876, entry.key, 0, None)
 
     # 队列等待估算：设为 10（每轮 8 人 → 2 人排队）
-    respx.get(f"{BASE}/api/shops/bemanicn/123/attendance").respond(json={"total": 10})
+    respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": 10})
     reply = await service.apply_count_update(
         entry, service.OP_SET, 10, "小明", silent=False
     )
@@ -138,7 +138,7 @@ async def test_apply_count_cloud_merge_and_upload():
     assert "每轮 8 人" in reply
 
     # 显式设置为绝对值：云端不同也不合并
-    respx.get(f"{BASE}/api/shops/bemanicn/123/attendance").respond(json={"total": 99})
+    respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": 99})
     await service.apply_count_update(entry, service.OP_SET, 3, "小明", silent=False)
     assert await store.current_count(876, entry.key) == 3
 
@@ -154,11 +154,11 @@ async def test_apply_count_upload_failures():
     from nonebot_plugin_awmc_arcade import service
 
     entry = await _arcade_with_shop()
-    respx.get(f"{BASE}/api/shops/bemanicn/123/attendance").respond(json={"total": 0})
-    respx.get(f"{BASE}/api/shops/bemanicn/123").respond(
+    respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": 0})
+    respx.get(f"{BASE}/api/shops/123").respond(
         json={"shop": {"games": SHOP["games"]}}
     )
-    post = respx.post(f"{BASE}/api/shops/bemanicn/123/attendance").mock(
+    post = respx.post(f"{BASE}/api/shops/123/attendance").mock(
         return_value=Response(400, json={})
     )
     reply = await service.apply_count_update(
@@ -182,11 +182,11 @@ async def test_count_query_and_cloud_align():
 
     entry = await _arcade_with_shop()
     # 无记录且云端一致：未更新文案
-    respx.get(f"{BASE}/api/shops/bemanicn/123/attendance").respond(json={"total": 0})
+    respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": 0})
     assert "今日人数尚未更新" in await service.count_query_reply(entry)
 
     # 云端 6：对齐后展示 6 人，最后更新人标记 Nearcade
-    respx.get(f"{BASE}/api/shops/bemanicn/123/attendance").respond(json={"total": 6})
+    respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": 6})
     reply = await service.count_query_reply(entry)
     assert "人数为 6" in reply
     assert "Nearcade" in reply
@@ -237,7 +237,7 @@ async def test_begin_add_arcade_search_flow():
     )
     reply = await service.continue_search(876, "u1", "更多")
     assert isinstance(reply, service.AddMenu)
-    assert "2️⃣ 第二页店" in reply.text
+    assert "2. 第二页店" in reply.text
     sess = session.get(876, "u1")
     assert sess is not None
     assert len(sess.payload["shops"]) == 2
