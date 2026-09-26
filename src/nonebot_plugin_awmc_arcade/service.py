@@ -624,11 +624,8 @@ def coords_from_location_json(obj: dict) -> tuple[float, float, str | None] | No
     return None
 
 
-def coords_from_tuwen_card(obj: dict) -> tuple[float, float, str | None] | None:
-    """新版位置卡片（tuwen.lua 图文卡）：坐标在 news 跳转链接参数里。
-
-    跳转链接形态随来源不同（QQ 地图/高德/百度短链），逐个解析器尝试。
-    """
+def _card_jump_urls(obj: dict) -> list[str]:
+    """收集卡片里的跳转链接（news 兼容列表/字典、jumpUrl 兼容字典/字符串）。"""
     meta = obj.get("meta")
     news = meta.get("news") if isinstance(meta, dict) else None
     urls: list[str] = []
@@ -639,17 +636,32 @@ def coords_from_tuwen_card(obj: dict) -> tuple[float, float, str | None] | None:
             jump = item.get("jumpUrl")
             if isinstance(jump, dict) and jump.get("url"):
                 urls.append(str(jump["url"]))
+            elif isinstance(jump, str):
+                urls.append(jump)
             elif isinstance(item.get("url"), str):
                 urls.append(item["url"])
     elif isinstance(news, dict):
         jump = news.get("jumpUrl")
         if isinstance(jump, str):
             urls.append(jump)
-    for url in urls:
-        coords = _coords_from_url(url)
-        if coords:
-            return coords
-    return None
+    return urls
+
+
+def _coords_from_amap_redirect(location: str) -> tuple[float, float, str | None] | None:
+    """amap 302 目标：wb.amap.com/?p=<poiid>,<lat>,<lng>,<名称>,<地址>。"""
+    from urllib.parse import parse_qs, urlparse
+
+    query = parse_qs(urlparse(location).query)
+    fields = (query.get("p") or [""])[0].split(",")
+    if len(fields) < 4:
+        return None
+    try:
+        lat, lng = float(fields[1]), float(fields[2])
+    except ValueError:
+        return None
+    if not (lat and lng):
+        return None
+    return lat, lng, fields[3]
 
 
 def _coords_from_url(url: str) -> tuple[float, float, str | None] | None:
@@ -658,6 +670,30 @@ def _coords_from_url(url: str) -> tuple[float, float, str | None] | None:
         or coords_from_google_url(url)
         or coords_from_baidu_url(url)
     )
+
+
+async def coords_from_card(obj: dict) -> tuple[float, float, str | None] | None:
+    """tuwen.lua 图文卡坐标：先解析各跳转链接，高德短链再跟随 302 兜底。
+
+    实测（2026-09-27 真实卡片）news 为字典、jumpUrl 为字符串形态的
+    surl.amap.com 短链——坐标只能在 302 目标里拿到，故此函数必须异步。
+    """
+    coords = coords_from_location_json(obj)  # 旧版 Location.Search 卡片
+    if coords:
+        return coords
+    urls = _card_jump_urls(obj)
+    for url in urls:
+        coords = _coords_from_url(url)
+        if coords:
+            return coords
+    for url in urls:
+        if "amap.com" in url:
+            location = await nearcade.resolve_redirect(url)
+            if location:
+                coords = _coords_from_amap_redirect(location)
+                if coords:
+                    return coords
+    return None
 
 
 def _coords_from_qq_poi_url(url: str) -> tuple[float, float, str | None] | None:
@@ -698,17 +734,9 @@ async def coords_from_text(text: str) -> tuple[float, float, str | None] | None:
     if m:
         location = await nearcade.resolve_redirect(m.group(0))
         if location:
-            from urllib.parse import parse_qs, urlparse
-
-            query = parse_qs(urlparse(location).query)
-            fields = (query.get("p") or [""])[0].split(",")
-            if len(fields) >= 4:
-                try:
-                    lat, lng = float(fields[1]), float(fields[2])
-                except ValueError:
-                    return None
-                if lat and lng:
-                    return lat, lng, fields[3]
+            coords = _coords_from_amap_redirect(location)
+            if coords:
+                return coords
     return None
 
 

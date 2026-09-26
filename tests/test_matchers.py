@@ -590,3 +590,71 @@ async def test_google_place_share_without_coords_ignored(app: App):
                 base=Bot, adapter=nonebot.get_adapter(OnebotV11Adapter)
             )
             ctx.receive_event(bot, event)
+
+
+async def test_tuwen_card_with_amap_string_jumpurl(app: App):
+    """回归（真实卡片样本）：news 为字典、jumpUrl 为高德短链字符串。
+
+    2026-09-27 群内实测：新版 QQ 位置卡片的 jumpUrl 是字符串形态的
+    surl.amap.com 短链，需跟随 302 才能拿到坐标。
+    """
+    import respx
+    import nonebot
+    from fake import fake_group_message_event_v11
+    from httpx import Response
+    from nonebot.adapters.onebot.v11 import Bot, Message, MessageSegment
+    from nonebot.adapters.onebot.v11 import Adapter as OnebotV11Adapter
+
+    from nonebot_plugin_awmc_arcade import location_listener
+
+    card = json.dumps(
+        {
+            "app": "com.tencent.tuwen.lua",
+            "bizsrc": "qqconnect.sdkshare",
+            "meta": {
+                "news": {
+                    "app_type": 1,
+                    "desc": "江苏省南京市雨花台区向秀路1号电话：(025)57088899查看详情>>",
+                    "jumpUrl": "https://surl.amap.com/UPNlzw17yd",
+                    "tag": "百度地图",
+                    "title": "南京雨花万象天地",
+                }
+            },
+            "prompt": "[分享]南京雨花万象天地",
+        }
+    )
+    event = fake_group_message_event_v11(
+        message=Message([MessageSegment.json(card)]), raw_message="[CQ:json,data=...]"
+    )
+    expected_reply = (
+        "🎮 A店（500米）\n📍 路1\n\n👉 更多详情请点开："
+        "https://nearcade.cn/discover?latitude=31.960541&longitude=118.732649"
+        "&radius=10&name=%E5%8D%97%E4%BA%AC%E9%9B%A8%E8%8A%B1%E4%B8%87%E8%B1%A1%E5%A4%A9%E5%9C%B0"
+    )
+    with respx.mock:
+        respx.get("https://surl.amap.com/UPNlzw17yd").mock(
+            return_value=Response(
+                302,
+                headers={
+                    "location": "https://wb.amap.com/?p=B0KU7A3X8U%2C31.960541"
+                    "%2C118.732649%2C%E5%8D%97%E4%BA%AC%E9%9B%A8%E8%8A%B1%E4%B8%87"
+                    "%E8%B1%A1%E5%A4%A9%E5%9C%B0%2C%E5%90%91%E7%A7%80%E8%B7%AF1%E5%8F%B7"
+                },
+            )
+        )
+        respx.get(f"{BASE}/api/discover").mock(
+            return_value=Response(
+                200,
+                json={
+                    "shops": [
+                        {"name": "A店", "distance": 0.5, "address": {"detailed": "路1"}}
+                    ]
+                },
+            )
+        )
+        async with app.test_matcher(location_listener) as ctx:
+            bot = ctx.create_bot(
+                base=Bot, adapter=nonebot.get_adapter(OnebotV11Adapter)
+            )
+            ctx.should_call_send(event, expected_reply, result=None, bot=bot)
+            ctx.receive_event(bot, event)

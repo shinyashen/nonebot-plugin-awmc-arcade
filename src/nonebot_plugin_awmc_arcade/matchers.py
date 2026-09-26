@@ -957,9 +957,7 @@ async def _location_rule(state: T_State, event: MessageEvent) -> bool:
             obj = json.loads(seg.data["data"])
         except Exception:
             continue
-        coords = service.coords_from_location_json(
-            obj
-        ) or service.coords_from_tuwen_card(obj)
+        coords = await service.coords_from_card(obj)
         if coords:
             lat, lng, name = coords
             state["_awmc_arcade_location"] = (lat, lng, name or "未知位置")
