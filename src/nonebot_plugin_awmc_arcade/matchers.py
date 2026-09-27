@@ -846,6 +846,9 @@ def _valid_search_choice(text: str, pending: session.PendingSession) -> bool:
     超范围/无关数字不消费（不吞消息，其余 matcher 照常处理）。
     """
     if text in _SEARCH_ACTIONS:
+        # 地区全量检索（无关键词）的菜单没有「原名」动作：不消费不吞消息
+        if text == "原名" and not pending.payload.get("query"):
+            return False
         return True
     if text.isdigit():
         return 1 <= int(text) <= len(pending.payload.get("shops", []))

@@ -388,11 +388,15 @@ class AddMenu:
 
 
 def _menu_actions(query: str, has_more: bool) -> str:
-    """操作说明：数字只用于选店，动作一律非数字词。"""
+    """操作说明：数字只用于选店，动作一律非数字词。
+
+    地区全量检索（无关键词）没有「原名」可加——空店名不可落库。
+    """
     lines = ["回复序号 选择对应机厅"]
     if has_more:
         lines.append("「更多」 查看更多结果")
-    lines.append(f"「原名」 直接添加「{query}」")
+    if query:
+        lines.append(f"「原名」 直接添加「{query}」")
     lines.append("「取消」 放弃操作")
     return "\n".join(lines)
 
@@ -417,6 +421,22 @@ def _build_menu(
     return AddMenu(text=text, nodes=nodes)
 
 
+async def _region_overflow(total: int, region_label: str, region_id: str) -> AddMenu:
+    """地区全量检索超上限：不起选择会话，转发提示改用更细地区缩小。
+
+    节点携带该地区下辖子级（地区树已缓存，零请求）供用户直接照抄。
+    """
+    cap = plugin_config.awmc_arcade_search_max_total
+    leaf = region_label.rsplit("/", 1)[-1]
+    nodes = [f"🔍 「{leaf}」共收录 {total} 家机厅，超过单次可浏览上限（{cap} 家）"]
+    children = await _region_children(region_id)
+    if children:
+        names = "、".join(str(c.get("label")) for c in children)
+        nodes.append(f"📍 「{leaf}」下辖：{names}")
+    nodes.append("💡 换个更细的地区再来，如：添加机厅 @江苏 @南京")
+    return AddMenu(text="\n\n".join(nodes), nodes=nodes)
+
+
 async def begin_add_arcade(
     scope: int, group_id: int, user_id: str, name: str
 ) -> "str | AddMenu":
@@ -424,28 +444,38 @@ async def begin_add_arcade(
 
     ``scope`` 是会话表的键维度（群聊=群号、私聊=0），``group_id`` 是
     落库目标群——私聊扩权时两者不同。
+    只带 ``@地区`` 不带店名时按地区全量检索（Nearcade 官方支持空关键词
+    + regionId）；超过可浏览上限不起会话，提示缩小地区，且无「原名」
+    直加兜底（空店名不可落库）。
     """
     region_tokens = _AT_REGION.findall(name)
     name = _AT_REGION.sub("", name).strip()
+    if not name and not region_tokens:
+        return "请输入机厅名称，可带 @地区 缩小范围，如：添加机厅 天空之城 @南京"
     region_id: str | None = None
     region_label = ""
     if region_tokens:
-        if not name:
-            return "请附带机厅名称，如：添加机厅 天空之城 @南京"
         resolved = await resolve_region(region_tokens)
         if isinstance(resolved, str):
             return resolved
         region_id, region_label = resolved
-    if await store.get_arcade_by_name(group_id, name):
+    if name and await store.get_arcade_by_name(group_id, name):
         return "机厅已在群聊中"
     result = await nearcade.search_shops(
         name, limit=SEARCH_PAGE_LIMIT, region_id=region_id
     )
     shops = result.get("shops", [])
-    if not shops:
+    total = max(int(result.get("totalCount", 0)), len(shops))
+    if not name:
+        # 地区全量检索：超上限提示缩小地区；无结果不落空名机厅
+        if total > plugin_config.awmc_arcade_search_max_total:
+            assert region_id is not None  # 空名称走到这里必然带过 @地区词
+            return await _region_overflow(total, region_label, region_id)
+        if not shops:
+            return f"Nearcade 未收录{region_label}的机厅"
+    elif not shops:
         await store.add_arcade(group_id, name, created_by=user_id)
         return f"未找到相关机厅，已直接添加「{name}」到群聊名单中"
-    total = result.get("totalCount", 0)
     session.start(
         session.KIND_SEARCH,
         scope,
@@ -511,6 +541,8 @@ async def continue_search(
         session.pop(scope, user_id)
         return "❌ 已取消添加操作"
     if choice == "原名":
+        if not query:
+            return None  # 地区全量检索无「原名」（菜单里也不展示），静默吞掉
         session.pop(scope, user_id)
         if await store.get_arcade_by_name(group_id, query):
             return f"机厅「{query}」已在群聊中"

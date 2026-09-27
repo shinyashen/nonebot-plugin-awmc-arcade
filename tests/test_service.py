@@ -452,3 +452,72 @@ async def test_region_filtered_search():
     reply = await service.begin_add_arcade(876, 876, "u3", "天空之城 @雨花台")
     assert isinstance(reply, str)
     assert "未找到地区" in reply
+
+
+@respx.mock
+async def test_region_only_search_and_cap():
+    """仅 @地区 检索：空关键词 + regionId；超上限不起会话并提示缩小。"""
+    from nonebot_plugin_awmc_arcade import service, session
+    from nonebot_plugin_awmc_arcade.store import store
+
+    await store.add_group(876)
+
+    def _regions(request):
+        table = {
+            "": [{"id": "CN", "label": "中国"}],
+            "CN": [{"id": "CN-32", "label": "江苏省"}],
+            "CN-32": [
+                {"id": "CN-3201", "label": "南京市"},
+                {"id": "CN-3202", "label": "无锡市"},
+            ],
+        }
+        parent = request.url.params.get("parentId") or ""
+        return Response(200, json=table.get(parent, []))
+
+    respx.get(f"{BASE}/api/regions").mock(side_effect=_regions)
+    search_route = respx.get(f"{BASE}/api/shops").mock(
+        return_value=Response(200, json={"shops": [SHOP], "totalCount": 2})
+    )
+
+    # 正常规模：挂会话出菜单，标题带地区路径、无「原名」动作
+    reply = await service.begin_add_arcade(876, 876, "u1", "@南京")
+    assert isinstance(reply, service.AddMenu)
+    assert "（江苏省/南京市）" in reply.nodes[0]
+    assert "「原名」" not in reply.nodes[1]
+    assert "「更多」" in reply.nodes[1]
+    assert "「取消」" in reply.nodes[1]
+    url = str(search_route.calls.last.request.url)
+    assert "regionId=CN-3201" in url
+    sess = session.get(876, "u1")
+    assert sess is not None
+    assert sess.payload["query"] == ""
+
+    # 地区会话里「原名」无效（静默吞、会话保留），「取消」正常收尾
+    assert await service.continue_search(876, "u1", "原名") is None
+    assert session.get(876, "u1") is not None
+    assert await service.continue_search(876, "u1", "取消") == "❌ 已取消添加操作"
+
+    # 空串（追问会话可能流入）：用法提示，不检索不落库
+    reply = await service.begin_add_arcade(876, 876, "u4", "")
+    assert isinstance(reply, str)
+    assert "请输入机厅名称" in reply
+
+    # 地区无收录：不落空名机厅
+    respx.get(f"{BASE}/api/shops").mock(
+        return_value=Response(200, json={"shops": [], "totalCount": 0})
+    )
+    reply = await service.begin_add_arcade(876, 876, "u2", "@无锡")
+    assert isinstance(reply, str)
+    assert "未收录" in reply
+    assert await store.list_arcades(876) == []
+
+    # 超上限：不起选择会话，转发文案带上限数值与下辖地区
+    respx.get(f"{BASE}/api/shops").mock(
+        return_value=Response(200, json={"shops": [SHOP], "totalCount": 51})
+    )
+    reply = await service.begin_add_arcade(876, 876, "u3", "@江苏")
+    assert isinstance(reply, service.AddMenu)
+    assert "51 家机厅" in reply.text
+    assert "上限（50 家）" in reply.text
+    assert "「江苏省」下辖：南京市、无锡市" in reply.text
+    assert session.get(876, "u3") is None

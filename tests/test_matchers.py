@@ -614,7 +614,9 @@ async def test_tuwen_card_with_amap_string_jumpurl(app: App):
             "meta": {
                 "news": {
                     "app_type": 1,
-                    "desc": "江苏省南京市雨花台区向秀路1号电话：(025)57088899查看详情>>",
+                    "desc": (
+                        "江苏省南京市雨花台区向秀路1号电话：(025)57088899查看详情>>"
+                    ),
                     "jumpUrl": "https://surl.amap.com/UPNlzw17yd",
                     "tag": "百度地图",
                     "title": "南京雨花万象天地",
@@ -658,3 +660,24 @@ async def test_tuwen_card_with_amap_string_jumpurl(app: App):
             )
             ctx.should_call_send(event, expected_reply, result=None, bot=bot)
             ctx.receive_event(bot, event)
+
+
+def test_search_gate_rejects_yuanming_without_query():
+    """地区全量检索（无关键词）的会话：「原名」不消费不吞消息。"""
+    from nonebot_plugin_awmc_arcade import session
+    from nonebot_plugin_awmc_arcade.matchers import _valid_search_choice
+
+    session.start(
+        session.KIND_SEARCH, 876, "u1", payload={"query": "", "shops": [SHOP]}
+    )
+    pending = session.get(876, "u1")
+    assert pending is not None
+    assert _valid_search_choice("原名", pending) is False
+    assert _valid_search_choice("更多", pending) is True
+
+    session.start(
+        session.KIND_SEARCH, 876, "u1", payload={"query": "近", "shops": [SHOP]}
+    )
+    pending = session.get(876, "u1")
+    assert pending is not None
+    assert _valid_search_choice("原名", pending) is True

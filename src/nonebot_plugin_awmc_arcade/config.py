@@ -44,6 +44,9 @@ class Config(BaseModel):
     awmc_arcade_nearby_radius_km: int = 10
     # 追问/搜索选择会话的 TTL（秒），超时未回应自动失效
     awmc_arcade_session_ttl: int = 120
+    # 仅 @地区 检索（无店名）的可浏览候选上限：超过则不起选择会话，
+    # 提示用更细地区缩小（带店名的检索天然已被关键词收窄，不受此限）
+    awmc_arcade_search_max_total: int = 50
     # 私聊「管理群 <群号>」上下文的 TTL（秒）
     awmc_arcade_manage_ttl: int = 1800
 
