@@ -24,6 +24,7 @@ service/store/nearcade。消息文案与上游 mai_arcade 保持一致（个别�
 """
 
 import re
+import sys
 import json
 import time
 
@@ -68,6 +69,11 @@ async def _is_target_admin(bot: Bot, group_id: int, user_id: str) -> str | None:
         return None
     key = (group_id, str(user_id))
     now = time.monotonic()
+    if len(_admin_cache) > _ADMIN_CACHE_MAX:
+        # 惰性全表清扫：键空间 = 管理操作(群, 用户) 组合，过期项仅同键再访问时
+        # 才清除，低频管理场景攒得住，超界整轮清一次
+        for k in [k for k, v in _admin_cache.items() if v[1] <= now]:
+            del _admin_cache[k]
     if cached := _admin_cache.get(key):
         if cached[1] > now:
             return None if cached[0] else _DENY_MANAGE
@@ -88,6 +94,7 @@ async def _is_target_admin(bot: Bot, group_id: int, user_id: str) -> str | None:
 
 
 _ADMIN_CACHE_TTL = 300.0  # 管理员角色缓存秒数
+_ADMIN_CACHE_MAX = 512  # 缓存键上界（超过触发惰性清扫）
 _admin_cache: dict[tuple[int, str], tuple[bool, float]] = {}
 _DENY_MANAGE = "权限不足：你不是该群的管理员"
 
@@ -591,7 +598,7 @@ async def _count_update_rule(state: T_State, event: MessageEvent) -> bool:
     """人数上报形态门禁：群已开通 + 能解析出机厅；解析结果挂 state。"""
     if not isinstance(event, GroupMessageEvent):
         return False
-    parsed = service.parse_count(event.raw_message.strip())
+    parsed = service.parse_count(event.message.extract_plain_text().strip())
     if parsed is None:
         return False
     name, op, num = parsed
@@ -608,7 +615,7 @@ async def _count_query_rule(state: T_State, event: MessageEvent) -> bool:
     """「XX几/几人/j」查询门禁：同上报门禁，后缀剥名。"""
     if not isinstance(event, GroupMessageEvent):
         return False
-    text = event.raw_message.strip()
+    text = event.message.extract_plain_text().strip()
     for suffix in ("几人", "几", "j"):
         if text.endswith(suffix):
             name = text[: -len(suffix)].strip()
@@ -799,44 +806,10 @@ async def _(
 
 # ---- 会话消费（搜索选择 / 缺参追问） ----
 
-# 消息以这些指令头开头时视为新指令：丢弃旧追问会话，不吞指令
-_COMMAND_HEADS = (
-    "添加群聊",
-    "删除群聊",
-    "管理群",
-    "静默监听模式",
-    "静默模式",
-    "监听模式",
-    "关闭静默监听模式",
-    "关闭静默模式",
-    "关闭监听模式",
-    "添加机厅别名",
-    "添加机厅地图",
-    "添加机厅",
-    "删除机厅别名",
-    "删除机厅地图",
-    "删除机厅",
-    "移除机厅别名",
-    "移除机厅地图",
-    "移除机厅",
-    "机厅列表",
-    "机厅人数",
-    "机厅几人",
-    "机厅别名",
-    "机厅地图",
-    "机厅help",
-    "机厅帮助",
-    "音游地图",
-    "群机厅",
-    "上机",
-    "排卡现状",
-    "排卡",
-    "退勤",
-    "延后",
-    "闭店",
-    "jtj",
-    "mai",
-)
+# 消息以指令头开头时视为新指令：丢弃旧追问会话，不吞指令。
+# 命令头从本模块全部 on_command/on_fullmatch 的 rule 派生（单一来源，见文件尾
+# _collect_command_heads）；本常量在模块加载完成后才求值，_session_rule 运行时读取
+_COMMAND_HEADS: frozenset[str] = frozenset()
 _SEARCH_ACTIONS = frozenset(service.SEARCH_ACTIONS)
 
 
@@ -857,8 +830,8 @@ def _valid_search_choice(text: str, pending: session.PendingSession) -> bool:
 
 async def _session_rule(state: T_State, event: MessageEvent) -> bool:
     """会话消费门禁：搜索会话吃动作词与有效序号；追问会话吃任意非指令消息。"""
-    text = event.raw_message.strip()
-    if text.startswith(_COMMAND_HEADS):
+    text = event.message.extract_plain_text().strip()
+    if any(text.startswith(h) for h in _COMMAND_HEADS):
         session.pop(_scope(event), event.get_user_id())  # 新指令进入，丢会话
         return False
     pending = session.get(_scope(event), event.get_user_id())
@@ -896,7 +869,7 @@ async def _(
     state: T_State,
 ):
     pending: session.PendingSession = state["_awmc_arcade_pending"]
-    text = event.raw_message.strip()
+    text = event.message.extract_plain_text().strip()
     scope = _scope(event)
     user_id = event.get_user_id()
     # 落库目标群：随会话 payload 携带（私聊扩权时 ≠ 会话 scope）
@@ -1076,3 +1049,28 @@ async def _(bot: Bot, event: MessageEvent):
     ):
         return
     await arcade_help.finish(HELP_TEXT)
+
+
+def _collect_command_heads() -> frozenset[str]:
+    """从本模块全部 on_command/on_fullmatch matcher 的 rule 提取命令头。
+
+    会话消费者（priority=0）用它识别「新指令进入」——此前与各 on_command
+    手工双写，新增指令漏登记会被静默吞掉，故收敛为单一来源派生。
+    """
+    from nonebot.rule import CommandRule, FullmatchRule
+
+    heads: set[str] = set()
+    for name in dir(sys.modules[__name__]):
+        obj = getattr(sys.modules[__name__], name)
+        if not isinstance(obj, type) or not hasattr(obj, "rule"):
+            continue
+        for dep in obj.rule.checkers:
+            call = getattr(dep, "call", None)
+            if isinstance(call, CommandRule):
+                heads.update(cmd[0] for cmd in call.cmds)
+            elif isinstance(call, FullmatchRule):
+                heads.update(call.msg)
+    return frozenset(heads)
+
+
+_COMMAND_HEADS = _collect_command_heads()
