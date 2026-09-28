@@ -60,7 +60,7 @@ def get(group_id: int, user_id: str) -> PendingSession | None:
 
 def pop(group_id: int, user_id: str) -> PendingSession | None:
     """取会话并结束（无论是否过期）。"""
-    return _sessions.pop((group_id, user_id), None)
+    return _sessions.pop((group_id, user_id))
 
 
 # ---- 私聊扩权：「管理群 <群号>」工作上下文 ----
