@@ -340,9 +340,19 @@ async def resolve_region(tokens: list[str]) -> tuple[str, str] | str:
                 items = await _region_children(parent)
                 hits = _region_hits(items, tok)
         if not hits and parent is not None and i == 0 and len(path) == 1:
-            # 省级仍无命中：扫描各省子级（市级直达，如「@南京」）
-            for prov in items:
-                children = await _region_children(str(prov["id"]))
+            # 省级仍无命中：并发扫各省子级（市级直达，如「@南京」）——
+            # 冷缓存串行拉 30+ 省要数秒，gather 压到单省量级；信号量限 8
+            # 防一次打爆 nearcade
+            sem = asyncio.Semaphore(8)
+
+            async def _children(pid: str) -> list[dict]:
+                async with sem:
+                    return await _region_children(pid)
+
+            children_lists = await asyncio.gather(
+                *(_children(str(prov["id"])) for prov in items)
+            )
+            for prov, children in zip(items, children_lists):
                 sub = _region_hits(children, tok)
                 if sub:
                     hits = sub
