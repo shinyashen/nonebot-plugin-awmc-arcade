@@ -8,6 +8,7 @@ import re
 import json
 import math
 import time
+import asyncio
 from datetime import datetime
 from dataclasses import dataclass
 
@@ -161,7 +162,27 @@ async def apply_count_update(
     与上游的一处有意偏差：显式设置（名=5）为绝对值，不再向云端看齐合并；
     相对增减（名+1/--2）保持上游语义——云端已有他人上报时，本次增量
     叠加到云端值上。
+
+    读-并-写-传四步按（群, 机厅）维度加锁串行：整群同时打卡是常态，
+    无锁时两人都基于同一旧值算增量，云端只净加 1 且本地账本重复记账。
     """
+    async with _count_lock(entry.group_id, entry.key):
+        return await _apply_count_update(entry, op, num, user_name, silent=silent)
+
+
+_COUNT_LOCKS: dict[tuple[int, int], asyncio.Lock] = {}
+
+
+def _count_lock(group_id: int, arcade_id: int) -> asyncio.Lock:
+    lock = _COUNT_LOCKS.get((group_id, arcade_id))
+    if lock is None:
+        lock = _COUNT_LOCKS[(group_id, arcade_id)] = asyncio.Lock()
+    return lock
+
+
+async def _apply_count_update(
+    entry: ArcadeEntry, op: str, num: int | None, user_name: str, *, silent: bool
+) -> str | None:
     computed = await compute_count(entry, op, num)
     if isinstance(computed, str):
         return computed
