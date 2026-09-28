@@ -253,6 +253,8 @@ class ArcadeStore:
 
     @staticmethod
     async def get_arcade(group_id: int, arcade_id: int) -> ArcadeEntry | None:
+        """按 id 查机厅（非指令链路 API：指令层走 by_name/列表；测试验证
+        「临时店不落库」语义用）。"""
         async with AsyncSession(get_engine()) as session:
             return (
                 await session.exec(

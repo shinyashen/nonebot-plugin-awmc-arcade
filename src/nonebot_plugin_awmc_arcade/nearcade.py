@@ -47,11 +47,12 @@ async def aclose() -> None:
 
 
 async def search_shops(
-    keyword: str, page: int = 1, limit: int = 3, region_id: str | None = None
+    keyword: str, page: int = 1, *, limit: int, region_id: str | None = None
 ) -> dict:
     """关键词搜索店铺；失败时返回空结果（调用方按「无结果」降级直加）。
 
-    ``region_id``：行政区划过滤（如 CN-3201=南京市），来自 /api/regions 地区树。
+    ``limit`` 必传（调用方统一 SEARCH_PAGE_LIMIT）；``region_id``：行政区划
+    过滤（如 CN-3201=南京市），来自 /api/regions 地区树。
     """
     try:
         params: dict = {"q": keyword, "page": page, "limit": limit}

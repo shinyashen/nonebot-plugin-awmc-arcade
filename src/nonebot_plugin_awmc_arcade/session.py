@@ -27,8 +27,6 @@ TOPIC_MAP_QUERY = "map_query"
 class PendingSession:
     kind: str
     topic: str = ""  # KIND_ASK 时的续接动作
-    group_id: int = 0
-    user_id: str = ""
     payload: dict = field(default_factory=dict)
     expire_at: float = 0.0
 
@@ -51,8 +49,6 @@ def start(
     _sessions[(group_id, user_id)] = PendingSession(
         kind=kind,
         topic=topic,
-        group_id=group_id,
-        user_id=user_id,
         payload=payload or {},
         expire_at=now + plugin_config.awmc_arcade_session_ttl,
     )

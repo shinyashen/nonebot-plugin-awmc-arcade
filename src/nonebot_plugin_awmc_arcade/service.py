@@ -385,20 +385,6 @@ def shop_web_url(shop: dict) -> str:
     return f"https://nearcade.cn/shops/{shop_id}"
 
 
-def _search_menu(page: int, shops: list[dict], total: int) -> str:
-    head = f"🔍 找到 {len(shops)} 个相关机厅：" if page == 1 else f"🔍 第{page}页结果："
-    text = (
-        head
-        + "\n\n"
-        + "\n\n".join(format_shop_info(shop, i) for i, shop in enumerate(shops, 1))
-    )
-    text += "\n\n请选择操作：\n1️⃣2️⃣3️⃣ 选择对应机厅"
-    if total > page * 3:
-        text += "\n4️⃣ 查看更多结果"
-    text += "\n5️⃣ 直接添加原名称\n6️⃣ 取消操作"
-    return text
-
-
 # 搜索菜单动作词（非数字——数字专用于选店序号，避免 4/5/6 与店序混淆）
 SEARCH_ACTIONS = ("更多", "原名", "取消")
 # 每页拉取的候选数（合并转发承载长列表；「更多」追加下一页、序号延续）
