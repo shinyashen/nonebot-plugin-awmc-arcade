@@ -17,7 +17,7 @@
 
 import httpx
 from nonebot import logger
-from nonebot_plugin_awmc_helper.core.http import build_smart_transport
+from nonebot_plugin_awmc_helper.core.http import create_smart_client
 
 BASE = "https://nearcade.cn"
 _HEADERS = {
@@ -30,11 +30,8 @@ _client: httpx.AsyncClient | None = None
 def _http() -> httpx.AsyncClient:
     global _client
     if _client is None:
-        # 智能代理传输层：国内站直连优先、连接失败代理回退；
-        # 主插件未配 AWMC_PROXY 时返回 None，行为与默认 transport 一致
-        _client = httpx.AsyncClient(
-            timeout=15, headers=_HEADERS, transport=build_smart_transport()
-        )
+        # 智能代理层统一工厂：国内站直连优先、连接失败代理回退
+        _client = create_smart_client(timeout=15, headers=_HEADERS)
     return _client
 
 
