@@ -1,14 +1,14 @@
 """TTL 会话表：Nearcade 搜索选择 / 无参指令的参数追问。
 
-按 awmc 生态约定，会话型交互不用 nonebot 的 ``got``——这里维护一张
-「(群, 用户) → 待续动作」的内存表，配 priority=0 的 on_message 消费
-matcher（定义在 matchers.py，本模块无注册副作用）。
-
-同一 (群, 用户) 同时只保留一个会话，新会话覆盖旧会话；过期惰性清除。
+会话表本体是 core 泛型 :class:`TtlSessionStore`（与主插件绑定回填同底座），
+本模块只定义业务会话结构与模块级门面；消费 matcher 定义在 matchers.py，
+本模块无注册副作用。
 """
 
 import time
 from dataclasses import field, dataclass
+
+from nonebot_plugin_awmc_helper.core.session_store import TtlSession, TtlSessionStore
 
 from .config import plugin_config
 
@@ -24,14 +24,13 @@ TOPIC_MAP_QUERY = "map_query"
 
 
 @dataclass
-class PendingSession:
+class PendingSession(TtlSession):
     kind: str
     topic: str = ""  # KIND_ASK 时的续接动作
     payload: dict = field(default_factory=dict)
-    expire_at: float = 0.0
 
 
-_sessions: dict[tuple[int, str], PendingSession] = {}
+_sessions: TtlSessionStore[tuple[int, str], PendingSession] = TtlSessionStore()
 
 
 def start(
@@ -43,26 +42,20 @@ def start(
     payload: dict | None = None,
 ) -> None:
     """开启/覆盖会话（附带惰性清扫过期项）。"""
-    now = time.time()
-    for key in [k for k, v in _sessions.items() if v.expire_at <= now]:
-        del _sessions[key]
-    _sessions[(group_id, user_id)] = PendingSession(
-        kind=kind,
-        topic=topic,
-        payload=payload or {},
-        expire_at=now + plugin_config.awmc_arcade_session_ttl,
+    _sessions.start(
+        (group_id, user_id),
+        PendingSession(
+            kind=kind,
+            topic=topic,
+            payload=payload or {},
+            expire_at=time.monotonic() + plugin_config.awmc_arcade_session_ttl,
+        ),
     )
 
 
 def get(group_id: int, user_id: str) -> PendingSession | None:
     """取会话（过期即清除并返回 None）。"""
-    session = _sessions.get((group_id, user_id))
-    if session is None:
-        return None
-    if session.expire_at <= time.time():
-        del _sessions[(group_id, user_id)]
-        return None
-    return session
+    return _sessions.get((group_id, user_id))
 
 
 def pop(group_id: int, user_id: str) -> PendingSession | None:
