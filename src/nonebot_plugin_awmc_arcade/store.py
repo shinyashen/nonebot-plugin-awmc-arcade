@@ -16,6 +16,14 @@
 - ``queue_item``：线上排卡队列（群内一人只能排一个机厅，群名片展示）；
 - ``count_log``：当日人数变更流水，当前人数 = 当日 delta 之和；
 - ``meta_row``：KV（日清标记等）。
+
+SQLModel 全局 metadata 边界（三仓共知）：SQLModel 表默认注册到同一全局
+metadata，任一仓 ``create_all`` 会把其他仓已加载模型的**空表**也建出来。
+表名三仓约定不重名（现状已满足：主仓 arcade 族 / arcade 仓 *_entry 族 /
+score-updater wechat_binding/play_count 族），空表无行、无实际影响；根治
+需独立 MetaData（SQLModel 支持有限，先调研，见主仓
+``local/code-review-3rd-deferred-structure.md`` 搁置项）。新表命名保持
+跨仓不重名。
 """
 
 from pathlib import Path
