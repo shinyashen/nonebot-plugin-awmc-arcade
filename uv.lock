@@ -1542,6 +1542,7 @@ dependencies = [
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pillow" },
     { name = "sqlmodel" },
+    { name = "tenacity" },
     { name = "zhconv" },
 ]
 
@@ -1559,6 +1560,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "sqlmodel", specifier = ">=0.0.16" },
+    { name = "tenacity", specifier = ">=9.0" },
     { name = "zhconv", specifier = ">=1.4.3" },
 ]
 
