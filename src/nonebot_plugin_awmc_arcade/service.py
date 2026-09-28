@@ -59,6 +59,11 @@ def parse_count(text: str) -> tuple[str, str, int | None] | None:
         return None  # 裸词，与人数无关
     if op in ("=", "==") and not num_str:
         return None  # 等号后没有数字，无意义
+    if not op and name.isdigit():
+        # 裸数字重置的「名」必须含非数字字符：\w 含数字，纯数字串会被
+        # 非贪婪拆成「首字符序号 + 其余人数」（211 → 2号厅=11），任意
+        # 数字串由此大范围误触；序号操作走显式操作符（2=11 / 2+11）不受限
+        return None
     num = int(num_str) if num_str else None
     if op in ("+", "++"):
         return name, OP_INC, num

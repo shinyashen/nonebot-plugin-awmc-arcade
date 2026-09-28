@@ -176,6 +176,9 @@ async def test_count_update_flow(app: App):
 
     await _reply(app, count_update, _event("测试店+99"), "检测到非法数值，拒绝更新")
     await _no_reply(app, count_update, _event("随便聊聊"))
+    # 纯数字串不触发人数上报（裸数字重置要求名字含非数字字符）
+    await _no_reply(app, count_update, _event("211"))
+    await _no_reply(app, count_update, _event("999999"))
     await _no_reply(app, count_query, _event("别家店几"))
 
 

@@ -49,6 +49,14 @@ def test_parse_count_matrix():
     assert service.parse_count("测试店") is None
     assert service.parse_count("测试店=") is None
     assert service.parse_count("你好呀") is None
+    # 纯数字串不是人数上报：裸数字重置要求名字含非数字字符，
+    # 否则任意数字串被拆成「序号+人数」误触（211 → 2号厅=11）
+    assert service.parse_count("211") is None
+    assert service.parse_count("12") is None
+    assert service.parse_count("999999") is None
+    # 序号定位配显式操作符不受限
+    assert service.parse_count("2=11") == ("2", service.OP_SET, 11)
+    assert service.parse_count("2+11") == ("2", service.OP_INC, 11)
 
 
 async def test_compute_count_bounds():
