@@ -1,0 +1,426 @@
+{
+ "location": {
+  "name": null,
+  "latitude": 31.960541,
+  "longitude": 118.732649
+ },
+ "radius": 10,
+ "limit": 150,
+ "shops": [
+  {
+   "_id": "6a217de931388a9c0d6d1f0a",
+   "id": 14656,
+   "name": "天空之城（雨花万象店）",
+   "comment": "全新开业，这家天空比较小，同一层还有另一家更大的机厅（即宝贝王）也有两台mai（所以恭喜南京一天之内喜提四台mai和零台chuni）\n\n避雷说明：此处maimai位于提币机旁，人员繁多（尤其是节假日），干扰较强；店员会在左侧maimai旁边门后的消防通道抽烟，味道很大，对烟味敏感者建议前往同层的宝贝王。由于上述原因，宝贝王的排队人数一般多于天空之城。\n\n价格对比：天空之城价格为4币1pc，宝贝王价格为3币1pc，可关注门店优惠活动进行计划以减少开支\nQQ：765989621",
+   "address": {
+    "general": [
+     "China",
+     "Jiangsu",
+     "Nanjing",
+     "Yuhuatai District"
+    ],
+    "detailed": "向秀路1号·L3·L301",
+    "region": [
+     {
+      "id": "CN",
+      "name": {
+       "en": "China",
+       "zh": "中国",
+       "ja": "中国"
+      }
+     },
+     {
+      "id": "CN-32",
+      "name": {
+       "en": "Jiangsu",
+       "zh": "江苏省",
+       "ja": "江蘇省"
+      }
+     },
+     {
+      "id": "CN-3201",
+      "name": {
+       "en": "Nanjing",
+       "zh": "南京市",
+       "ja": "南京市"
+      }
+     },
+     {
+      "id": "CN-320114",
+      "name": {
+       "en": "Yuhuatai District",
+       "zh": "雨花台区",
+       "ja": "雨花台区"
+      }
+     }
+    ]
+   },
+   "openingHours": [
+    [
+     {
+      "hour": 10,
+      "minute": 0
+     },
+     {
+      "hour": 22,
+      "minute": 0
+     }
+    ]
+   ],
+   "games": [
+    {
+     "gameId": 14656000,
+     "titleId": 1,
+     "name": "maimai DX",
+     "version": "国服最新",
+     "comment": "右侧机台会偶有出现卡死现象（程序异常），因此人少的情况下一般不开。若有需要可以联系工作人员开机",
+     "quantity": 2,
+     "cost": "4币",
+     "totalAttendance": 0
+    }
+   ],
+   "location": {
+    "type": "Point",
+    "coordinates": [
+     118.733023,
+     31.960458
+    ]
+   },
+   "timezone": {
+    "name": "Asia/Shanghai",
+    "offset": 8
+   },
+   "isOpen": false,
+   "isClaimed": false,
+   "isLocked": false,
+   "transit": {
+    "metro": {
+     "networkId": "cn-nanjing",
+     "stationId": "cn-nanjing-jia-xi",
+     "stationName": "贾西",
+     "names": {
+      "zh": "贾西",
+      "en": "Jia Xi"
+     },
+     "walkSeconds": 177,
+     "distanceKm": 0.17,
+     "lines": [
+      {
+       "id": "cn-nanjing-line-s3",
+       "name": "S3号线",
+       "names": {
+        "zh": "S3号线",
+        "en": "Line S3"
+       },
+       "color": "#b97caf",
+       "shortName": "S3"
+      }
+     ]
+    }
+   },
+   "createdAt": "2024-12-23T09:20:54.000Z",
+   "updatedAt": "2026-05-02T11:09:23.000Z",
+   "distance": 0.03646997726308342,
+   "totalAttendance": 0,
+   "currentReportedAttendance": null
+  },
+  {
+   "_id": "6a217de931388a9c0d6d1f0b",
+   "id": 14657,
+   "name": "宝贝王（雨花万象店）",
+   "comment": "2025.5.13 mai新装电风扇，出汗wmc欢迎来宝贝王乘凉（\n\n不是，为什么宝贝王会有mai（\n总之恭喜南京一天喜提四台mai，另外两台在同一层的天空之城\n由于宝贝王的定位是亲子游乐园，小朋友会比较多，请各位乌蒙吃们注意言行！\n宝贝王一局3币，略低于天空之城的一局4币，再加上一些其他原因（见天空之城的店铺说明）排队人数会比天空之城多，遇到长队可以去天空之城碰碰运气。\nQQ：765989621",
+   "address": {
+    "general": [
+     "China",
+     "Jiangsu",
+     "Nanjing",
+     "Yuhuatai District"
+    ],
+    "detailed": "雨花台区向秀路1号·L3·L312",
+    "region": [
+     {
+      "id": "CN",
+      "name": {
+       "en": "China",
+       "zh": "中国",
+       "ja": "中国"
+      }
+     },
+     {
+      "id": "CN-32",
+      "name": {
+       "en": "Jiangsu",
+       "zh": "江苏省",
+       "ja": "江蘇省"
+      }
+     },
+     {
+      "id": "CN-3201",
+      "name": {
+       "en": "Nanjing",
+       "zh": "南京市",
+       "ja": "南京市"
+      }
+     },
+     {
+      "id": "CN-320114",
+      "name": {
+       "en": "Yuhuatai District",
+       "zh": "雨花台区",
+       "ja": "雨花台区"
+      }
+     }
+    ]
+   },
+   "openingHours": [
+    [
+     {
+      "hour": 10,
+      "minute": 0
+     },
+     {
+      "hour": 22,
+      "minute": 0
+     }
+    ]
+   ],
+   "games": [
+    {
+     "gameId": 14657003,
+     "titleId": 31,
+     "name": "太鼓之达人",
+     "version": "国服",
+     "comment": "2P较吃音，选歌时避免打最左侧以免误选",
+     "quantity": 1,
+     "cost": "12币",
+     "totalAttendance": 0
+    },
+    {
+     "gameId": 14657002,
+     "titleId": 28,
+     "name": "湾岸MIDNIGHT",
+     "version": "5DX+",
+     "comment": "后续费用由STN战队包下，工作日18点至下班，战队拥有优先权，休息日全天，不可以用卡游玩",
+     "quantity": 4,
+     "cost": "10币",
+     "totalAttendance": 0
+    },
+    {
+     "gameId": 14657001,
+     "titleId": 26,
+     "name": "头文字D",
+     "version": "Zero",
+     "comment": "",
+     "quantity": 2,
+     "cost": "4币",
+     "totalAttendance": 0
+    },
+    {
+     "gameId": 14657000,
+     "titleId": 1,
+     "name": "maimai DX",
+     "version": "2025最新",
+     "comment": "两台舞萌均已更换了自制弹片，相较于其他机厅手感略有不同，请结合自身实际情况选择出勤。偶尔会出现卡键现象，喊机修拆键即可，更多其他情况可进入机厅群进行了解765989621",
+     "quantity": 2,
+     "cost": "3币",
+     "totalAttendance": 0
+    }
+   ],
+   "location": {
+    "type": "Point",
+    "coordinates": [
+     118.733856,
+     31.959759
+    ]
+   },
+   "timezone": {
+    "name": "Asia/Shanghai",
+    "offset": 8
+   },
+   "isOpen": false,
+   "isClaimed": false,
+   "isLocked": false,
+   "transit": {
+    "metro": {
+     "networkId": "cn-nanjing",
+     "stationId": "cn-nanjing-jia-xi",
+     "stationName": "贾西",
+     "names": {
+      "zh": "贾西",
+      "en": "Jia Xi"
+     },
+     "walkSeconds": 65,
+     "distanceKm": 0.063,
+     "lines": [
+      {
+       "id": "cn-nanjing-line-s3",
+       "name": "S3号线",
+       "names": {
+        "zh": "S3号线",
+        "en": "Line S3"
+       },
+       "color": "#b97caf",
+       "shortName": "S3"
+      }
+     ]
+    }
+   },
+   "createdAt": "2024-12-23T09:32:47.000Z",
+   "updatedAt": "2026-07-24T03:56:33.000Z",
+   "distance": 0.14327237325450454,
+   "totalAttendance": 0,
+   "currentReportedAttendance": null
+  },
+  {
+   "_id": "6a217de931388a9c0d6d217e",
+   "id": 15647,
+   "name": "菲游乐南京金陵天地店",
+   "comment": "开业初期币价相对比较贵，2026年6月店面零售购买1.5元/币，美团85或89.9元/100币，闲鱼可收到33-35元/100币。\n商场周边为安置房，老人小孩较多，舞萌在机厅外商场公共区域，可能会有围观路人。打机时请注意个人物品和小孩。其他游戏有2台类似月光宝盒的机器 3币一次\n需要注意的是，截止25年11月30日，左边机器2p的耳机孔仍然是坏的。",
+   "address": {
+    "general": [
+     "China",
+     "Jiangsu",
+     "Nanjing",
+     "Jianye District"
+    ],
+    "detailed": "中和路68号南京金陵天地L3层L366铺",
+    "region": [
+     {
+      "id": "CN",
+      "name": {
+       "en": "China",
+       "zh": "中国",
+       "ja": "中国"
+      }
+     },
+     {
+      "id": "CN-32",
+      "name": {
+       "en": "Jiangsu",
+       "zh": "江苏省",
+       "ja": "江蘇省"
+      }
+     },
+     {
+      "id": "CN-3201",
+      "name": {
+       "en": "Nanjing",
+       "zh": "南京市",
+       "ja": "南京市"
+      }
+     },
+     {
+      "id": "CN-320105",
+      "name": {
+       "en": "Jianye District",
+       "zh": "建邺区",
+       "ja": "建鄴区"
+      }
+     }
+    ]
+   },
+   "openingHours": [
+    [
+     {
+      "hour": 10,
+      "minute": 0
+     },
+     {
+      "hour": 22,
+      "minute": 0
+     }
+    ]
+   ],
+   "games": [
+    {
+     "gameId": 15647000,
+     "titleId": 1,
+     "name": "maimai DX",
+     "version": "Ver.CN1.51-D",
+     "comment": "新机子，\n另开风扇时注意不要碰到机子中间的插座了",
+     "quantity": 2,
+     "cost": "3币",
+     "totalAttendance": 0
+    },
+    {
+     "gameId": 15647001,
+     "titleId": 26,
+     "name": "头文字D",
+     "version": "Zero",
+     "comment": "5币，已停服",
+     "quantity": 2,
+     "cost": "5币",
+     "totalAttendance": 0
+    },
+    {
+     "gameId": 15647002,
+     "titleId": 32,
+     "name": "宝可梦明耀之星",
+     "version": "国服",
+     "comment": "2026.3.13更新，涨了两个币，从之前的13币，涨到了15币",
+     "quantity": 2,
+     "cost": "15币",
+     "totalAttendance": 0
+    }
+   ],
+   "location": {
+    "type": "Point",
+    "coordinates": [
+     118.713097,
+     31.974268
+    ]
+   },
+   "timezone": {
+    "name": "Asia/Shanghai",
+    "offset": 8
+   },
+   "isOpen": false,
+   "isClaimed": false,
+   "isLocked": false,
+   "transit": {
+    "metro": {
+     "networkId": "cn-nanjing",
+     "stationId": "cn-nanjing-yongchu-lu",
+     "stationName": "永初路",
+     "names": {
+      "zh": "永初路",
+      "en": "Yongchu Lu"
+     },
+     "walkSeconds": 89,
+     "distanceKm": 0.086,
+     "lines": [
+      {
+       "id": "cn-nanjing-line-7",
+       "name": "7号线",
+       "names": {
+        "zh": "7号线",
+        "en": "Line 7"
+       },
+       "color": "#818530",
+       "shortName": "7"
+      },
+      {
+       "id": "cn-nanjing-line-s3",
+       "name": "S3号线",
+       "names": {
+        "zh": "S3号线",
+        "en": "Line S3"
+       },
+       "color": "#b97caf",
+       "shortName": "S3"
+      }
+     ]
+    }
+   },
+   "createdAt": "2025-07-12T07:12:00.000Z",
+   "updatedAt": "2026-08-03T12:57:17.000Z",
+   "distance": 2.394067589853504,
+   "travel": {
+    "seconds": 1257,
+    "metroSeconds": 600
+   },
+   "totalAttendance": 0,
+   "currentReportedAttendance": null
+  }
+ ]
+}

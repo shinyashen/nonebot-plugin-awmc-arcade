@@ -14,7 +14,7 @@ htmlcov/
 .pytest_cache/
 
 # 运行时数据（localstore 以 CWD 模式落在仓库内时）
-data/
+/data/
 .env
 .env.dev
 .env.prod

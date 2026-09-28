@@ -1,27 +1,40 @@
 """域逻辑测试：人数解析换算、云同步编排、搜索会话流转（Nearcade 用 respx 拦截）。
 
+店铺/地区/发现列表数据取自 tests/data/nearcade/ 真实快照（2026-09-29 取材，
+来源见其 meta.json）：真实店「天空之城（雨花万象店）」（Nearcade id 14656，
+maimai DX 2 台）。云端人数为「当前态」，合并/对齐场景的构造 total 均已注明。
 插件相关导入一律函数内进行（收集期不触发插件加载链）。
 """
 
 import respx
 from httpx import Response
+from conftest import nearcade_snapshot
 
 BASE = "https://nearcade.cn"
 
-SHOP = {
-    "id": 123,
-    "source": "bemanicn",
-    "name": "Nearcade店",
-    "address": {"detailed": "某路1号"},
-    "games": [{"name": "maimai DX", "quantity": 4, "gameId": 77}],
-}
+# 真实店铺详情原文（「天空之城（雨花万象店）」，搜索候选与详情同源同形）
+DETAIL = nearcade_snapshot("shop_tenshi_detail.json")
+TENSHI = DETAIL["shop"]
+# 真实出勤响应（total=0：采集时无人上报）
+TENSHI_ATT = nearcade_snapshot("shop_tenshi_attendance.json")
+# 真实搜索页 1 裁剪条目（翻页候选用；totalCount=7265 为捕获原文）
+SEARCH_PAGE1 = nearcade_snapshot("search_page1.json")
+SEARCH_TOTAL = SEARCH_PAGE1["totalCount"]
+# 真实地区树片段（顶层国家原文 + 省/市级真实行政区划）
+REGIONS = nearcade_snapshot("regions_fragments.json")
+# 真实发现列表（雨花万象天地坐标附近）：天空之城 36 米 / 宝贝王 143 米
+DISCOVER_SHOPS = nearcade_snapshot("discover_yuhua.json")["shops"]
+
+TENSHI_ID = str(TENSHI["id"])  # "14656"
 
 
-def _routes(attendance: int | None = 5, upload_status: int = 200):
-    """ ""常用 Nearcade 路由组；attendance=None 表示出勤接口 500。"""
-    respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": attendance})
-    respx.get(f"{BASE}/api/shops/123").respond(json={"shop": {"games": SHOP["games"]}})
-    respx.post(f"{BASE}/api/shops/123/attendance").mock(
+def _routes(attendance: int | None = None, upload_status: int = 200):
+    """常用 Nearcade 路由组；attendance=None 用真实快照（total=0），
+    传值为构造的云端人数（合并/等待场景，见 meta.json 构造注记）。"""
+    att = TENSHI_ATT if attendance is None else {"total": attendance}
+    respx.get(f"{BASE}/api/shops/{TENSHI_ID}/attendance").respond(json=att)
+    respx.get(f"{BASE}/api/shops/{TENSHI_ID}").respond(json=DETAIL)
+    respx.post(f"{BASE}/api/shops/{TENSHI_ID}/attendance").mock(
         return_value=Response(upload_status, json={})
     )
 
@@ -30,7 +43,8 @@ async def _arcade_with_shop(**kw):
     from nonebot_plugin_awmc_arcade.store import store
 
     await store.add_group(876)
-    entry = await store.add_arcade(876, "测试店", shop_id="123", source="bemanicn")
+    # 本地店名保持合成（群内自定义名），云端关联指向真实店铺 14656
+    entry = await store.add_arcade(876, "测试店", shop_id=TENSHI_ID)
     assert entry is not None
     return entry
 
@@ -120,29 +134,40 @@ async def test_apply_count_cloud_merge_and_upload():
     from nonebot_plugin_awmc_arcade.store import store
 
     entry = await _arcade_with_shop()
+    # 构造云端 5（真实快照 total=0 为「无人」语义，合并需非零对照）
     _routes(attendance=5)
 
-    # 本地 0，云端 5：+2 合并为 5+2（7 < 每轮 8 人，无需等待）
+    # 本地 0，云端 5：+2 合并为 5+2=7；真实机台 2 台 → 每轮 4 人，
+    # 7 人 = 3 人排队 → 预计等待 round(3/4*16)=12 分钟（0~1 轮）
     reply = await service.apply_count_update(
         entry, service.OP_INC, 2, "小明", silent=False
     )
     assert reply is not None
     assert await store.current_count(876, entry.key) == 7
     assert "感谢使用，机厅人数已上传 Nearcade" in reply
-    assert "无需等待" in reply
+    assert "每轮 4 人" in reply
+    assert "预计等待：约 12 分钟" in reply
     await store.reset_count(876, entry.key, 0, None)
 
-    # 队列等待估算：设为 10（每轮 8 人 → 2 人排队）
-    respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": 10})
+    # 真实云端值（total=0）：+2 → 2 ≤ 每轮 4 人，无需等待
+    respx.get(f"{BASE}/api/shops/{TENSHI_ID}/attendance").respond(json=TENSHI_ATT)
+    reply = await service.apply_count_update(
+        entry, service.OP_INC, 2, "小明", silent=False
+    )
+    assert reply is not None
+    assert "无需等待" in reply
+
+    # 队列等待估算：构造云端 10，显式设为 10（每轮 4 人 → 6 人排队）
+    respx.get(f"{BASE}/api/shops/{TENSHI_ID}/attendance").respond(json={"total": 10})
     reply = await service.apply_count_update(
         entry, service.OP_SET, 10, "小明", silent=False
     )
     assert reply is not None
     assert "预计等待" in reply
-    assert "每轮 8 人" in reply
+    assert "每轮 4 人" in reply
 
     # 显式设置为绝对值：云端不同也不合并
-    respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": 99})
+    respx.get(f"{BASE}/api/shops/{TENSHI_ID}/attendance").respond(json={"total": 99})
     await service.apply_count_update(entry, service.OP_SET, 3, "小明", silent=False)
     assert await store.current_count(876, entry.key) == 3
 
@@ -158,18 +183,17 @@ async def test_apply_count_upload_failures():
     from nonebot_plugin_awmc_arcade import service
 
     entry = await _arcade_with_shop()
-    respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": 0})
-    respx.get(f"{BASE}/api/shops/123").respond(json={"shop": {"games": SHOP["games"]}})
-    post = respx.post(f"{BASE}/api/shops/123/attendance").mock(
-        return_value=Response(400, json={})
-    )
+    # 云端人数取真实快照（total=0）
+    _routes(upload_status=400)
     reply = await service.apply_count_update(
         entry, service.OP_SET, 4, "小明", silent=False
     )
     assert reply is not None
     assert "关门了" in reply
 
-    post.mock(return_value=Response(500, text="boom"))
+    respx.post(f"{BASE}/api/shops/{TENSHI_ID}/attendance").mock(
+        return_value=Response(500, text="boom")
+    )
     reply = await service.apply_count_update(
         entry, service.OP_SET, 4, "小明", silent=False
     )
@@ -183,15 +207,18 @@ async def test_count_query_and_cloud_align():
     from nonebot_plugin_awmc_arcade.store import store
 
     entry = await _arcade_with_shop()
-    # 无记录且云端一致：未更新文案
-    respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": 0})
+    # 真实快照（云端 total=0 且本地无记录）：未更新文案
+    respx.get(f"{BASE}/api/shops/{TENSHI_ID}/attendance").respond(json=TENSHI_ATT)
     assert "今日人数尚未更新" in await service.count_query_reply(entry)
 
-    # 云端 6：对齐后展示 6 人，最后更新人标记 Nearcade
-    respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": 6})
+    # 构造云端 6：对齐后展示 6 人（店铺详情真实 2 台 → 每轮 4 人），
+    # 更新人标记 Nearcade
+    respx.get(f"{BASE}/api/shops/{TENSHI_ID}/attendance").respond(json={"total": 6})
+    respx.get(f"{BASE}/api/shops/{TENSHI_ID}").respond(json=DETAIL)
     reply = await service.count_query_reply(entry)
     assert "人数为 6" in reply
     assert "Nearcade" in reply
+    assert "每轮 4 人" in reply
     assert await store.current_count(876, entry.key) == 6
 
 
@@ -214,45 +241,49 @@ async def test_begin_add_arcade_search_flow():
     from nonebot_plugin_awmc_arcade.store import store
 
     await store.add_group(876)
+    # 真实捕获：totalCount=7265（上游未按 q 过滤的全量口径，见 meta.json）
     route = respx.get(f"{BASE}/api/shops").mock(
-        return_value=Response(200, json={"shops": [SHOP], "totalCount": 4})
+        return_value=Response(200, json={"shops": [TENSHI], "totalCount": SEARCH_TOTAL})
     )
 
-    reply = await service.begin_add_arcade(876, 876, "u1", "近")
+    reply = await service.begin_add_arcade(876, 876, "u1", "天空之城")
     assert isinstance(reply, service.AddMenu)  # 挂会话 + 菜单
     assert route.called
     # 节点结构：标题 / 操作说明 / 逐店列表
-    assert reply.nodes[0] == "🔍 找到 4 个相关机厅"  # 展示总数
-    assert "「更多」" in reply.nodes[1]  # 还有 3 家未列出
+    assert reply.nodes[0] == f"🔍 找到 {SEARCH_TOTAL} 个相关机厅"  # 真实总数
+    assert "「更多」" in reply.nodes[1]  # 还有更多未列出
     assert "回复序号" in reply.nodes[1]
     assert "「原名」" in reply.nodes[1]
-    assert reply.nodes[2] == service.format_shop_info(SHOP, 1)
-    assert "Nearcade店" in reply.text
+    assert reply.nodes[2] == service.format_shop_info(TENSHI, 1)
+    assert "天空之城（雨花万象店）" in reply.text
     sess = session.get(876, "u1")
     assert sess is not None
     assert sess.kind == session.KIND_SEARCH
 
-    # 翻页：total=4，已列 1 家 → 「更多」追加并延续序号
-    page2 = {"shops": [dict(SHOP, id=456, name="第二页店")], "totalCount": 4}
+    # 翻页（真实第二页无独立快照，复用页 1 真实条目充任后续页候选）：
+    # 「更多」追加并延续序号
+    page2_shop = SEARCH_PAGE1["shops"][0]  # 真实店「（天虹店）贵溪天空之星」
     respx.get(f"{BASE}/api/shops").mock(
-        return_value=Response(200, json={"shops": page2["shops"], "totalCount": 4})
+        return_value=Response(
+            200, json={"shops": [page2_shop], "totalCount": SEARCH_TOTAL}
+        )
     )
     reply = await service.continue_search(876, "u1", "更多")
     assert isinstance(reply, service.AddMenu)
-    assert "2. 第二页店" in reply.text
+    assert f"2. {page2_shop['name']}" in reply.text
     sess = session.get(876, "u1")
     assert sess is not None
     assert len(sess.payload["shops"]) == 2
 
     # 翻页尽头
     respx.get(f"{BASE}/api/shops").mock(
-        return_value=Response(200, json={"shops": [], "totalCount": 4})
+        return_value=Response(200, json={"shops": [], "totalCount": SEARCH_TOTAL})
     )
     assert await service.continue_search(876, "u1", "更多") == "没有更多结果了"
 
-    # 选择 2（第二页店）：落库 + 自动挂链接与地图
+    # 选择 2（真实店「贵溪天空之星」）：落库 + 自动挂链接与地图
     respx.get(f"{BASE}/api/shops").mock(
-        return_value=Response(200, json={"shops": [SHOP], "totalCount": 4})
+        return_value=Response(200, json={"shops": [TENSHI], "totalCount": SEARCH_TOTAL})
     )
     session.start(
         session.KIND_SEARCH,
@@ -260,23 +291,21 @@ async def test_begin_add_arcade_search_flow():
         "u1",
         payload={
             "group_id": 876,
-            "shops": [SHOP, page2["shops"][0]],  # 「更多」追加后的累计列表
-            "query": "近",
+            "shops": [TENSHI, page2_shop],  # 「更多」追加后的累计列表
+            "query": "天空之城",
             "page": 2,
-            "total": 4,
+            "total": SEARCH_TOTAL,
             "created_by": "u1",
         },
     )
     reply = await service.continue_search(876, "u1", "2")
     assert isinstance(reply, str)
-    assert "已添加机厅：第二页店" in reply
+    assert f"已添加机厅：{page2_shop['name']}" in reply
     assert "已添加机厅地图" in reply
-    entry = await store.get_arcade_by_name(876, "第二页店")
+    entry = await store.get_arcade_by_name(876, page2_shop["name"])
     assert entry is not None
-    assert entry.nearcade_shop_id == "456"
-    assert await store.list_maps(876, entry.key) == [
-        service.shop_web_url(page2["shops"][0])
-    ]
+    assert entry.nearcade_shop_id == str(page2_shop["id"])  # 真实 id 14768
+    assert await store.list_maps(876, entry.key) == [service.shop_web_url(page2_shop)]
     assert session.get(876, "u1") is None  # 会话结束
 
 
@@ -311,8 +340,8 @@ async def test_continue_search_cancel_and_direct():
         "u1",
         payload={
             "group_id": 876,
-            "shops": [SHOP],
-            "query": "近",
+            "shops": [TENSHI],
+            "query": "天空之城",
             "page": 1,
             "total": 1,
             "created_by": "u1",
@@ -329,8 +358,8 @@ async def test_continue_search_cancel_and_direct():
         "u1",
         payload={
             "group_id": 876,
-            "shops": [SHOP],
-            "query": "近",
+            "shops": [TENSHI],
+            "query": "天空之城",
             "page": 1,
             "total": 1,
             "created_by": "u1",
@@ -338,8 +367,8 @@ async def test_continue_search_cancel_and_direct():
     )
     reply = await service.continue_search(876, "u1", "原名")
     assert isinstance(reply, str)
-    assert "已添加机厅：近" in reply
-    assert await store.get_arcade_by_name(876, "近") is not None
+    assert "已添加机厅：天空之城" in reply
+    assert await store.get_arcade_by_name(876, "天空之城") is not None
     # 无效选择不回复：超范围序号、未知词
     assert await service.continue_search(876, "u1", "9") is None
     assert await service.continue_search(876, "u1", "干嘛") is None
@@ -351,7 +380,7 @@ async def test_manage_replies():
 
     entry = await _arcade_with_shop()
     await store.add_alias(876, entry.key, "甲店")
-    await store.add_map(876, entry.key, "https://nearcade.cn/shops/bemanicn/123")
+    await store.add_map(876, entry.key, f"https://nearcade.cn/shops/{TENSHI_ID}")
 
     # 管理删除：本名/序号可定位，别名不可
     assert "不在群聊中或为机厅别名" in await service.delete_arcade_reply(876, "甲店")
@@ -385,16 +414,23 @@ async def test_manage_replies():
 async def test_discover_reply():
     from nonebot_plugin_awmc_arcade import service
 
-    data = {
-        "shops": [
-            {"name": "A店", "distance": 0.5, "address": {"detailed": "路1"}},
-            {"name": "B店", "distance": "未知", "address": {}},
-        ]
-    }
-    reply = service.discover_reply(data, f"{BASE}/discover?x=1")
+    # 真实发现列表：天空之城 36 米 / 宝贝王 143 米（雨花万象天地坐标附近）
+    tenshi, baby = DISCOVER_SHOPS[0], DISCOVER_SHOPS[1]
+    assert tenshi["name"] == "天空之城（雨花万象店）"
+    assert baby["name"] == "宝贝王（雨花万象店）"
+    reply = service.discover_reply({"shops": [tenshi, baby]}, f"{BASE}/discover?x=1")
     assert reply is not None
-    assert "A店（500米）" in reply
-    assert "B店（未知距离）" in reply
+    # 真实距离 0.03647km / 0.14327km
+    assert f"🎮 {tenshi['name']}（36米）" in reply
+    assert f"📍 {tenshi['address']['detailed']}" in reply
+    assert f"🎮 {baby['name']}（143米）" in reply
+    assert f"📍 {baby['address']['detailed']}" in reply
+
+    # 非数值距离容错分支：真实条目距离均为数值，构造字符串距离覆盖（见 meta.json）
+    weird = {"shops": [{"name": baby["name"], "distance": "未知", "address": {}}]}
+    reply = service.discover_reply(weird, f"{BASE}/d")
+    assert reply is not None
+    assert "未知距离" in reply
     assert service.discover_reply({"shops": []}, f"{BASE}/d") is not None
     assert service.discover_reply({"shops": []}, "") is None  # 查询失败静默
 
@@ -419,27 +455,23 @@ async def test_ensure_daily_reset_compensation():
 
 @respx.mock
 async def test_region_filtered_search():
-    """@地区词解析（国名缺省回退中国→逐级下钻）、regionId 过滤与 7 天缓存。"""
+    """@地区词解析（国名缺省回退中国→逐级下钻）、regionId 过滤与 7 天缓存。
+
+    地区树用真实片段：中国（CN）→ 江苏省（CN-32）/ 辽宁省（CN-21）→
+    南京市（CN-3201）/ 大连市（CN-2102）。
+    """
     from nonebot_plugin_awmc_arcade import service, session
     from nonebot_plugin_awmc_arcade.store import store
 
     await store.add_group(876)
 
     def _regions(request):
-        table = {
-            "": [{"id": "CN", "label": "中国"}, {"id": "US", "label": "美国"}],
-            "CN": [
-                {"id": "CN-32", "label": "江苏省"},
-                {"id": "CN-11", "label": "北京市"},
-            ],
-            "CN-32": [{"id": "CN-3201", "label": "南京市"}],
-        }
         parent = request.url.params.get("parentId") or ""
-        return Response(200, json=table.get(parent, []))
+        return Response(200, json=REGIONS.get(parent, []))
 
     regions_route = respx.get(f"{BASE}/api/regions").mock(side_effect=_regions)
     search_route = respx.get(f"{BASE}/api/shops").mock(
-        return_value=Response(200, json={"shops": [SHOP], "totalCount": 1})
+        return_value=Response(200, json={"shops": [TENSHI], "totalCount": 1})
     )
 
     reply = await service.begin_add_arcade(876, 876, "u1", "天空之城 @南京")
@@ -447,7 +479,7 @@ async def test_region_filtered_search():
     assert "（江苏省/南京市）" in reply.nodes[0]
     sess = session.get(876, "u1")
     assert sess is not None
-    assert sess.payload["region_id"] == "CN-3201"
+    assert sess.payload["region_id"] == "CN-3201"  # 南京市真实行政区划 id
     assert "regionId=CN-3201" in str(search_route.calls.last.request.url)
 
     # 地区树已缓存：第二位用户同地区查询不再触发 regions 请求
@@ -456,7 +488,7 @@ async def test_region_filtered_search():
     assert isinstance(reply, service.AddMenu)
     assert regions_route.call_count == first_count
 
-    # 未知地区给可选子级提示
+    # 未知地区给可选子级提示（雨花台区为区级，超出省→市下钻范围）
     reply = await service.begin_add_arcade(876, 876, "u3", "天空之城 @雨花台")
     assert isinstance(reply, str)
     assert "未找到地区" in reply
@@ -471,20 +503,13 @@ async def test_region_only_search_and_cap():
     await store.add_group(876)
 
     def _regions(request):
-        table = {
-            "": [{"id": "CN", "label": "中国"}],
-            "CN": [{"id": "CN-32", "label": "江苏省"}],
-            "CN-32": [
-                {"id": "CN-3201", "label": "南京市"},
-                {"id": "CN-3202", "label": "无锡市"},
-            ],
-        }
         parent = request.url.params.get("parentId") or ""
-        return Response(200, json=table.get(parent, []))
+        return Response(200, json=REGIONS.get(parent, []))
 
     respx.get(f"{BASE}/api/regions").mock(side_effect=_regions)
+    # 候选总数构造小值（真实南京市全量数未捕获）：验证「更多」翻页分支
     search_route = respx.get(f"{BASE}/api/shops").mock(
-        return_value=Response(200, json={"shops": [SHOP], "totalCount": 2})
+        return_value=Response(200, json={"shops": [TENSHI], "totalCount": 7})
     )
 
     # 正常规模：挂会话出菜单，标题带地区路径、无「原名」动作
@@ -510,22 +535,23 @@ async def test_region_only_search_and_cap():
     assert isinstance(reply, str)
     assert "请输入机厅名称" in reply
 
-    # 地区无收录：不落空名机厅
+    # 地区无收录（构造空搜索响应，见 meta.json）：不落空名机厅
     respx.get(f"{BASE}/api/shops").mock(
         return_value=Response(200, json={"shops": [], "totalCount": 0})
     )
-    reply = await service.begin_add_arcade(876, 876, "u2", "@无锡")
+    reply = await service.begin_add_arcade(876, 876, "u2", "@南京")
     assert isinstance(reply, str)
     assert "未收录" in reply
     assert await store.list_arcades(876) == []
 
-    # 超上限：不起选择会话，转发文案带上限数值与下辖地区
+    # 超上限（真实 totalCount=7265 > 50）：不起选择会话，
+    # 转发文案带上限数值与真实下辖地区
     respx.get(f"{BASE}/api/shops").mock(
-        return_value=Response(200, json={"shops": [SHOP], "totalCount": 51})
+        return_value=Response(200, json={"shops": [TENSHI], "totalCount": SEARCH_TOTAL})
     )
     reply = await service.begin_add_arcade(876, 876, "u3", "@江苏")
     assert isinstance(reply, service.AddMenu)
-    assert "51 家机厅" in reply.text
+    assert f"{SEARCH_TOTAL} 家机厅" in reply.text
     assert "上限（50 家）" in reply.text
-    assert "「江苏省」下辖：南京市、无锡市" in reply.text
+    assert "「江苏省」下辖：南京市" in reply.text
     assert session.get(876, "u3") is None

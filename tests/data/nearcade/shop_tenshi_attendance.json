@@ -1,0 +1,18 @@
+{
+ "success": true,
+ "total": 0,
+ "games": [
+  {
+   "gameId": 14656000,
+   "titleId": 1,
+   "name": "maimai DX",
+   "version": "国服最新",
+   "comment": "",
+   "quantity": 2,
+   "cost": "",
+   "total": 0
+  }
+ ],
+ "registered": [],
+ "reported": []
+}

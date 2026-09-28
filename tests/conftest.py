@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,15 @@ if Path(".env.dev").exists():
     os.environ["ENVIRONMENT"] = "dev"
 else:
     os.environ["ENVIRONMENT"] = "test"
+
+
+def nearcade_snapshot(name: str) -> dict:
+    """读取 Nearcade 真实数据快照（tests/data/nearcade/，2026-09-29 取材）。
+
+    来源 URL、裁剪口径与构造场景见该目录 meta.json。
+    """
+    path = Path(__file__).parent / "data" / "nearcade" / name
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]):

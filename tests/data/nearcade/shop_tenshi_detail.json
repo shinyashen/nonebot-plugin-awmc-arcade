@@ -1,0 +1,115 @@
+{
+ "shop": {
+  "_id": "6a217de931388a9c0d6d1f0a",
+  "id": 14656,
+  "name": "天空之城（雨花万象店）",
+  "comment": "全新开业，这家天空比较小，同一层还有另一家更大的机厅（即宝贝王）也有两台mai（所以恭喜南京一天之内喜提四台mai和零台chuni）\n\n避雷说明：此处maimai位于提币机旁，人员繁多（尤其是节假日），干扰较强；店员会在左侧maimai旁边门后的消防通道抽烟，味道很大，对烟味敏感者建议前往同层的宝贝王。由于上述原因，宝贝王的排队人数一般多于天空之城。\n\n价格对比：天空之城价格为4币1pc，宝贝王价格为3币1pc，可关注门店优惠活动进行计划以减少开支\nQQ：765989621",
+  "address": {
+   "general": [
+    "China",
+    "Jiangsu",
+    "Nanjing",
+    "Yuhuatai District"
+   ],
+   "detailed": "向秀路1号·L3·L301",
+   "region": [
+    {
+     "id": "CN",
+     "name": {
+      "en": "China",
+      "zh": "中国",
+      "ja": "中国"
+     }
+    },
+    {
+     "id": "CN-32",
+     "name": {
+      "en": "Jiangsu",
+      "zh": "江苏省",
+      "ja": "江蘇省"
+     }
+    },
+    {
+     "id": "CN-3201",
+     "name": {
+      "en": "Nanjing",
+      "zh": "南京市",
+      "ja": "南京市"
+     }
+    },
+    {
+     "id": "CN-320114",
+     "name": {
+      "en": "Yuhuatai District",
+      "zh": "雨花台区",
+      "ja": "雨花台区"
+     }
+    }
+   ]
+  },
+  "openingHours": [
+   [
+    {
+     "hour": 10,
+     "minute": 0
+    },
+    {
+     "hour": 22,
+     "minute": 0
+    }
+   ]
+  ],
+  "games": [
+   {
+    "gameId": 14656000,
+    "titleId": 1,
+    "name": "maimai DX",
+    "version": "国服最新",
+    "comment": "右侧机台会偶有出现卡死现象（程序异常），因此人少的情况下一般不开。若有需要可以联系工作人员开机",
+    "quantity": 2,
+    "cost": "4币"
+   }
+  ],
+  "location": {
+   "type": "Point",
+   "coordinates": [
+    118.733023,
+    31.960458
+   ]
+  },
+  "timezone": {
+   "name": "Asia/Shanghai",
+   "offset": 8
+  },
+  "isOpen": false,
+  "isClaimed": false,
+  "isLocked": false,
+  "transit": {
+   "metro": {
+    "networkId": "cn-nanjing",
+    "stationId": "cn-nanjing-jia-xi",
+    "stationName": "贾西",
+    "names": {
+     "zh": "贾西",
+     "en": "Jia Xi"
+    },
+    "walkSeconds": 177,
+    "distanceKm": 0.17,
+    "lines": [
+     {
+      "id": "cn-nanjing-line-s3",
+      "name": "S3号线",
+      "names": {
+       "zh": "S3号线",
+       "en": "Line S3"
+      },
+      "color": "#b97caf",
+      "shortName": "S3"
+     }
+    ]
+   }
+  },
+  "createdAt": "2024-12-23T09:20:54.000Z",
+  "updatedAt": "2026-05-02T11:09:23.000Z"
+ }
+}

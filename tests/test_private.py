@@ -1,5 +1,9 @@
 """私聊扩权测试：管理群上下文、目标群解析、身份校验与指令链路。
 
+店铺数据取自 tests/data/nearcade/ 真实快照（2026-09-29 取材，来源见其
+meta.json）：真实店「天空之城（雨花万象店）」（Nearcade id 14656）。
+QQ 号/群号保持合成（个人标识与数据真实性无关）。
+
 SU 直通不触发 API；群管理员经 get_group_member_info 直查（300 秒缓存）；
 成员被拒；bot 不在目标群时给友好提示。
 """
@@ -7,22 +11,21 @@ SU 直通不触发 API；群管理员经 get_group_member_info 直查（300 秒�
 from collections.abc import Sequence
 
 from nonebug import App
+from conftest import nearcade_snapshot
 
 BASE = "https://nearcade.cn"
 
-SHOP = {
-    "id": 123,
-    "source": "bemanicn",
-    "name": "Nearcade店",
-    "address": {"detailed": "某路1号"},
-    "games": [{"name": "maimai DX", "quantity": 4, "gameId": 77}],
-}
+# 真实店铺详情原文（「天空之城（雨花万象店）」，搜索候选与详情同源同形）
+TENSHI = nearcade_snapshot("shop_tenshi_detail.json")["shop"]
+TENSHI_ID = str(TENSHI["id"])  # "14656"
 
+SHOP = TENSHI
 SHOP_MENU = (
     "🔍 找到 1 个相关机厅：\n\n"
-    "1. Nearcade店\n   📍 某路1号\n   🎮 maimai DX（4台）\n\n"
+    f"1. {TENSHI['name']}\n   📍 {TENSHI['address']['detailed']}\n"
+    "   🎮 maimai DX（2台）\n\n"
     "回复序号 选择对应机厅\n"
-    "「原名」 直接添加「近」\n"
+    "「原名」 直接添加「天空之城」\n"
     "「取消」 放弃操作"
 )
 
@@ -227,16 +230,16 @@ async def test_private_add_arcade_chain(app: App, monkeypatch):
         respx.get(f"{BASE}/api/shops").mock(
             return_value=Response(200, json={"shops": [SHOP], "totalCount": 1})
         )
-        await _run(app, add_arcade, _private_event("添加机厅 近"), SHOP_MENU)
+        await _run(app, add_arcade, _private_event("添加机厅 天空之城"), SHOP_MENU)
     await _run(
         app,
         session_consumer,
         _private_event("1"),
-        "✅ 已添加机厅：Nearcade店\n"
-        "🔗 详情链接：https://nearcade.cn/shops/123\n🗺️ 已添加机厅地图",
+        f"✅ 已添加机厅：{SHOP['name']}\n"
+        f"🔗 详情链接：https://nearcade.cn/shops/{TENSHI_ID}\n🗺️ 已添加机厅地图",
     )
 
-    entry = await store.get_arcade_by_name(123456, "Nearcade店")
+    entry = await store.get_arcade_by_name(123456, SHOP["name"])
     assert entry is not None
     assert entry.id is not None
 
@@ -301,7 +304,7 @@ async def test_private_not_open_group(app: App, monkeypatch):
     await _run(
         app,
         add_arcade,
-        _private_event("添加机厅 123456 近"),
+        _private_event("添加机厅 123456 某店"),
         "本群尚未开通排卡功能,请联系群主或管理员添加群聊",
     )
 

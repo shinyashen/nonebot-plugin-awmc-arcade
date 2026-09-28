@@ -1,5 +1,9 @@
 """指令层测试：权限门禁、指令链路与会话消费（Nearcade 用 respx 拦截）。
 
+店铺/发现列表数据取自 tests/data/nearcade/ 真实快照（2026-09-29 取材，
+来源见其 meta.json）：真实店「天空之城（雨花万象店）」（Nearcade id 14656，
+maimai DX 2 台）；位置消息形态为南京雨花万象天地真实抓包样本。
+本地店名「测试店」、QQ/群号保持合成（个人标识与数据真实性无关）。
 带时间戳的回复文案在 service 层测试中以子串断言；本层只做可精确
 比对的端到端链路。
 """
@@ -9,24 +13,32 @@ import json
 import respx
 from httpx import Response
 from nonebug import App
+from conftest import nearcade_snapshot
 
 # 插件相关导入一律函数内进行（收集期不触发插件加载链）
 
 BASE = "https://nearcade.cn"
 
-SHOP = {
-    "id": 123,
-    "source": "bemanicn",
-    "name": "Nearcade店",
-    "address": {"detailed": "某路1号"},
-    "games": [{"name": "maimai DX", "quantity": 4, "gameId": 77}],
-}
+# 真实店铺详情原文（「天空之城（雨花万象店）」，搜索候选与详情同源同形）
+DETAIL = nearcade_snapshot("shop_tenshi_detail.json")
+TENSHI = DETAIL["shop"]
+TENSHI_ID = str(TENSHI["id"])  # "14656"
+# 真实出勤响应（total=0：采集时无人上报）
+TENSHI_ATT = nearcade_snapshot("shop_tenshi_attendance.json")
+# 真实发现列表首条（雨花万象天地坐标附近 36 米，即同一家店）
+DISCOVER_SHOP = nearcade_snapshot("discover_yuhua.json")["shops"][0]
+_DISCOVER_LINE = (
+    f"🎮 {DISCOVER_SHOP['name']}（{DISCOVER_SHOP['distance'] * 1000:.0f}米）\n"
+    f"📍 {DISCOVER_SHOP['address']['detailed']}\n\n👉 更多详情请点开："
+)
 
+SHOP = TENSHI
 SHOP_MENU = (
     "🔍 找到 1 个相关机厅：\n\n"
-    "1. Nearcade店\n   📍 某路1号\n   🎮 maimai DX（4台）\n\n"
+    f"1. {TENSHI['name']}\n   📍 {TENSHI['address']['detailed']}\n"
+    "   🎮 maimai DX（2台）\n\n"
     "回复序号 选择对应机厅\n"
-    "「原名」 直接添加「近」\n"
+    "「原名」 直接添加「天空之城」\n"
     "「取消」 放弃操作"
 )
 
@@ -39,7 +51,7 @@ async def _open_group_with_arcade(name: str = "测试店", shop: bool = True):
         87654321,
         name,
         created_by="u0",
-        **({"shop_id": "123", "source": "bemanicn"} if shop else {}),
+        **({"shop_id": TENSHI_ID} if shop else {}),
     )
     assert entry is not None
     return entry
@@ -123,15 +135,20 @@ async def test_arcade_manage_flow(app: App, monkeypatch):
 
     with respx.mock:
         respx.get(f"{BASE}/api/shops").mock(
-            return_value=Response(200, json={"shops": [SHOP], "totalCount": 1})
+            return_value=Response(200, json={"shops": [TENSHI], "totalCount": 1})
         )
-        await _reply(app, add_arcade, _event("添加机厅 近", role="admin"), SHOP_MENU)
+        await _reply(
+            app,
+            add_arcade,
+            _event("添加机厅 天空之城", role="admin"),
+            SHOP_MENU,
+        )
     await _reply(
         app,
         session_consumer,
         _event("1"),
-        "✅ 已添加机厅：Nearcade店\n"
-        "🔗 详情链接：https://nearcade.cn/shops/123\n🗺️ 已添加机厅地图",
+        f"✅ 已添加机厅：{TENSHI['name']}\n"
+        f"🔗 详情链接：https://nearcade.cn/shops/{TENSHI_ID}\n🗺️ 已添加机厅地图",
     )
 
     await _reply(app, delete_arcade, _event("删除机厅 2"), "只有管理员能够删除机厅")
@@ -139,7 +156,7 @@ async def test_arcade_manage_flow(app: App, monkeypatch):
         app,
         delete_arcade,
         _event("删除机厅 2", role="admin"),
-        "已从群聊名单中删除机厅：Nearcade店",
+        f"已从群聊名单中删除机厅：{TENSHI['name']}",
     )
     await _reply(
         app,
@@ -155,24 +172,23 @@ async def test_count_update_flow(app: App):
 
     entry = await _open_group_with_arcade()
     with respx.mock:
-        respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": 5})
-        respx.get(f"{BASE}/api/shops/123").respond(
-            json={"shop": {"games": SHOP["games"]}}
-        )
-        respx.post(f"{BASE}/api/shops/123/attendance").mock(
+        # 真实快照：云端 total=0、店铺详情 2 台（每轮 4 人）→ +2 合并为 2
+        respx.get(f"{BASE}/api/shops/{TENSHI_ID}/attendance").respond(json=TENSHI_ATT)
+        respx.get(f"{BASE}/api/shops/{TENSHI_ID}").respond(json=DETAIL)
+        respx.post(f"{BASE}/api/shops/{TENSHI_ID}/attendance").mock(
             return_value=Response(200, json={})
         )
         await _reply(
             app,
             count_update,
             _event("测试店+2"),
-            "感谢使用，机厅人数已上传 Nearcade\n📍 测试店  人数已更新为 7\n"
-            "🕹️ 机台数量：4 台（每轮 8 人）\n\n✅ 无需等待，快去出勤吧！",
+            "感谢使用，机厅人数已上传 Nearcade\n📍 测试店  人数已更新为 2\n"
+            "🕹️ 机台数量：2 台（每轮 4 人）\n\n✅ 无需等待，快去出勤吧！",
         )
 
     from nonebot_plugin_awmc_arcade.store import store
 
-    assert await store.current_count(87654321, entry.key) == 7
+    assert await store.current_count(87654321, entry.key) == 2
 
     await _reply(app, count_update, _event("测试店+99"), "检测到非法数值，拒绝更新")
     await _no_reply(app, count_update, _event("随便聊聊"))
@@ -198,11 +214,10 @@ async def test_silent_mode_suppresses_update(app: App, monkeypatch):
     )
 
     with respx.mock:
-        respx.get(f"{BASE}/api/shops/123/attendance").respond(json={"total": 0})
-        respx.get(f"{BASE}/api/shops/123").respond(
-            json={"shop": {"games": SHOP["games"]}}
-        )
-        respx.post(f"{BASE}/api/shops/123/attendance").mock(
+        # 真实快照：云端 total=0、店铺详情 2 台
+        respx.get(f"{BASE}/api/shops/{TENSHI_ID}/attendance").respond(json=TENSHI_ATT)
+        respx.get(f"{BASE}/api/shops/{TENSHI_ID}").respond(json=DETAIL)
+        respx.post(f"{BASE}/api/shops/{TENSHI_ID}/attendance").mock(
             return_value=Response(200, json={})
         )
         await _no_reply(app, count_update, _event("测试店+1"))
@@ -357,14 +372,25 @@ async def test_help(app: App, monkeypatch):
 
 
 async def test_location_listener(app: App):
-    """位置消息 → 附近机厅。"""
+    """位置消息 → 附近机厅（真实卡片坐标与真实发现列表首条）。"""
+    from urllib.parse import quote
+
     from fake import fake_group_message_event_v11
     from nonebot.adapters.onebot.v11 import Message, MessageSegment
 
     from nonebot_plugin_awmc_arcade import location_listener
 
+    # 真实抓包坐标：南京雨花万象天地（与 tests/data/nearcade/discover 快照同源）
     cq = json.dumps(
-        {"meta": {"Location.Search": {"lat": 31.2, "lng": 121.4, "name": "某地"}}}
+        {
+            "meta": {
+                "Location.Search": {
+                    "lat": 31.960199,
+                    "lng": 118.732845,
+                    "name": "南京雨花万象天地",
+                }
+            }
+        }
     )
     event = fake_group_message_event_v11(
         message=Message([MessageSegment.json(cq)]),
@@ -373,22 +399,15 @@ async def test_location_listener(app: App):
 
     with respx.mock:
         respx.get(f"{BASE}/api/discover").mock(
-            return_value=Response(
-                200,
-                json={
-                    "shops": [
-                        {"name": "A店", "distance": 0.5, "address": {"detailed": "路1"}}
-                    ]
-                },
-            )
+            return_value=Response(200, json={"shops": [DISCOVER_SHOP]})
         )
         await _reply(
             app,
             location_listener,
             event,
-            "🎮 A店（500米）\n📍 路1\n\n👉 更多详情请点开："
-            "https://nearcade.cn/discover?latitude=31.2&longitude=121.4"
-            "&radius=10&name=%E6%9F%90%E5%9C%B0",
+            f"{_DISCOVER_LINE}"
+            "https://nearcade.cn/discover?latitude=31.960199&longitude=118.732845"
+            f"&radius=10&name={quote('南京雨花万象天地')}",
         )
 
 
@@ -413,7 +432,7 @@ async def test_ask_session_consumes_next_message(app: App):
 
 
 async def test_location_variants(app: App, monkeypatch):
-    """位置消息五种实测形态 + 无坐标形态静默忽略。"""
+    """位置消息六形态（南京雨花万象天地真实抓包样本）+ 无坐标形态静默忽略。"""
     import json
     from urllib.parse import quote
 
@@ -531,25 +550,14 @@ async def test_location_variants(app: App, monkeypatch):
         event = fake_group_message_event_v11(message=message, raw_message=str(message))
         with respx.mock:
             discover = respx.get(f"{BASE}/api/discover").mock(
-                return_value=Response(
-                    200,
-                    json={
-                        "shops": [
-                            {
-                                "name": "A店",
-                                "distance": 0.5,
-                                "address": {"detailed": "路1"},
-                            }
-                        ]
-                    },
-                )
+                return_value=Response(200, json={"shops": [DISCOVER_SHOP]})
             )
             if mock_url:
                 respx.get(mock_url).mock(
                     return_value=Response(302, headers={"location": mock_target})
                 )
             expected_reply = (
-                f"🎮 A店（500米）\n📍 路1\n\n👉 更多详情请点开："
+                f"{_DISCOVER_LINE}"
                 f"{BASE}/discover?latitude={lat}&longitude={lng}"
                 f"&radius=10&name={quote(name)}"
             )
@@ -632,7 +640,7 @@ async def test_tuwen_card_with_amap_string_jumpurl(app: App):
         message=Message([MessageSegment.json(card)]), raw_message="[CQ:json,data=...]"
     )
     expected_reply = (
-        "🎮 A店（500米）\n📍 路1\n\n👉 更多详情请点开："
+        f"{_DISCOVER_LINE}"
         "https://nearcade.cn/discover?latitude=31.960541&longitude=118.732649"
         "&radius=10&name=%E5%8D%97%E4%BA%AC%E9%9B%A8%E8%8A%B1%E4%B8%87%E8%B1%A1%E5%A4%A9%E5%9C%B0"
     )
@@ -648,14 +656,7 @@ async def test_tuwen_card_with_amap_string_jumpurl(app: App):
             )
         )
         respx.get(f"{BASE}/api/discover").mock(
-            return_value=Response(
-                200,
-                json={
-                    "shops": [
-                        {"name": "A店", "distance": 0.5, "address": {"detailed": "路1"}}
-                    ]
-                },
-            )
+            return_value=Response(200, json={"shops": [DISCOVER_SHOP]})
         )
         async with app.test_matcher(location_listener) as ctx:
             bot = ctx.create_bot(
@@ -679,7 +680,7 @@ def test_search_gate_rejects_yuanming_without_query():
     assert _valid_search_choice("更多", pending) is True
 
     session.start(
-        session.KIND_SEARCH, 876, "u1", payload={"query": "近", "shops": [SHOP]}
+        session.KIND_SEARCH, 876, "u1", payload={"query": "天空之城", "shops": [SHOP]}
     )
     pending = session.get(876, "u1")
     assert pending is not None

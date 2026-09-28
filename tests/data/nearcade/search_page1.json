@@ -1,0 +1,211 @@
+{
+ "shops": [
+  {
+   "_id": "6a217de931388a9c0d6d1f53",
+   "id": 14768,
+   "name": "（天虹店）贵溪天空之星",
+   "comment": "已经开业，已知有除你字母x2 乌蒙地插x2以及神秘跳舞机\n美团团购比价偏高，群内偶尔会开币车请留意管理名片信息\n右边中二的耳机孔接触不良，触摸板偶尔会幽灵。舞萌右边2p内屏吃星星比较严重\n店内比较热，预计今年暑假之前会新增四台挂式风扇在舞萌上面，具体可以留意大群信息\n玩家大群1130026829，小群795950274",
+   "address": {
+    "general": [
+     "China",
+     "Jiangxi",
+     "Yingtan",
+     "Guixi"
+    ],
+    "detailed": "贵溪天虹购物中心3f",
+    "region": [
+     {
+      "id": "CN",
+      "name": {
+       "en": "China",
+       "zh": "中国",
+       "ja": "中国"
+      }
+     },
+     {
+      "id": "CN-36",
+      "name": {
+       "en": "Jiangxi",
+       "zh": "江西省",
+       "ja": "江西省"
+      }
+     },
+     {
+      "id": "CN-3606",
+      "name": {
+       "en": "Yingtan",
+       "zh": "鹰潭市",
+       "ja": "鷹潭市"
+      }
+     },
+     {
+      "id": "CN-360681",
+      "name": {
+       "en": "Guixi",
+       "zh": "贵溪市",
+       "ja": "貴渓市"
+      }
+     }
+    ]
+   },
+   "openingHours": [
+    [
+     {
+      "hour": 10,
+      "minute": 0
+     },
+     {
+      "hour": 22,
+      "minute": 0
+     }
+    ]
+   ],
+   "games": [
+    {
+     "gameId": 14768000,
+     "titleId": 1,
+     "name": "maimai DX",
+     "version": "2025",
+     "comment": "全新机台，无二手",
+     "quantity": 2,
+     "cost": "4币"
+    },
+    {
+     "gameId": 14768001,
+     "titleId": 3,
+     "name": "CHUNITHM",
+     "version": "2025",
+     "comment": "全新机台，无二手\n25.8.7 右边耳机孔有点问题，戴耳机左耳会没声音",
+     "quantity": 2,
+     "cost": "3币"
+    }
+   ],
+   "location": {
+    "type": "Point",
+    "coordinates": [
+     117.212001,
+     28.283787
+    ]
+   },
+   "timezone": {
+    "name": "Asia/Shanghai",
+    "offset": 8
+   },
+   "isOpen": false,
+   "isClaimed": false,
+   "isLocked": false,
+   "createdAt": "2025-01-01T16:24:53.000Z",
+   "updatedAt": "2026-04-07T04:57:04.000Z"
+  },
+  {
+   "_id": "6a217de931388a9c0d6d1d7d",
+   "id": 14017,
+   "name": "1-7PLAY(西美花街店)",
+   "comment": "这家店要倒闭了\n店铺有最低消费大概30元起售低于三十无法购买游戏币",
+   "address": {
+    "general": [
+     "China",
+     "Hebei",
+     "Shijiazhuang",
+     "Qiaoxi District"
+    ],
+    "detailed": "红旗大街西美·花街生活工场4楼",
+    "region": [
+     {
+      "id": "CN",
+      "name": {
+       "en": "China",
+       "zh": "中国",
+       "ja": "中国"
+      }
+     },
+     {
+      "id": "CN-13",
+      "name": {
+       "en": "Hebei",
+       "zh": "河北省",
+       "ja": "河北省"
+      }
+     },
+     {
+      "id": "CN-1301",
+      "name": {
+       "en": "Shijiazhuang",
+       "zh": "石家庄市",
+       "ja": "石家荘市"
+      }
+     },
+     {
+      "id": "CN-130104",
+      "name": {
+       "en": "Qiaoxi District",
+       "zh": "桥西区",
+       "ja": "橋西区"
+      }
+     }
+    ]
+   },
+   "openingHours": [
+    [
+     {
+      "hour": 10,
+      "minute": 0
+     },
+     {
+      "hour": 22,
+      "minute": 0
+     }
+    ]
+   ],
+   "games": [
+    {
+     "gameId": 14017000,
+     "titleId": 1,
+     "name": "maimai DX",
+     "version": "Ver.CN1.41-J",
+     "comment": "这家店要倒闭了，联网是不可能联网的了",
+     "quantity": 1,
+     "cost": "2币"
+    },
+    {
+     "gameId": 14017002,
+     "titleId": 26,
+     "name": "头文字D",
+     "version": "8",
+     "comment": "1p2p常年不开机，4p喇叭明显杂音",
+     "quantity": 4,
+     "cost": "4币"
+    },
+    {
+     "gameId": 14017001,
+     "titleId": 15,
+     "name": "太鼓达人(旧代)",
+     "version": "无",
+     "comment": "没开机，不知道是好是坏",
+     "quantity": 1,
+     "cost": "免费游玩"
+    }
+   ],
+   "location": {
+    "type": "Point",
+    "coordinates": [
+     114.460469,
+     37.993902
+    ]
+   },
+   "timezone": {
+    "name": "Asia/Shanghai",
+    "offset": 8
+   },
+   "isOpen": false,
+   "isClaimed": false,
+   "isLocked": false,
+   "createdAt": "2024-08-15T15:55:43.000Z",
+   "updatedAt": "2026-08-19T06:11:46.000Z"
+  }
+ ],
+ "totalCount": 7265,
+ "currentPage": 1,
+ "hasNextPage": true,
+ "hasPrevPage": false
+}

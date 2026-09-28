@@ -1,0 +1,68 @@
+{
+ "_meta": {
+  "captured_at": "2026-09-29",
+  "note": "顶层国家列表（键 \"\"）裁剪自 https://nearcade.cn/api/regions 原文（label 为 en 形态）；省/市级无独立 API 快照，id 与 zh 名称取自真实店铺记录的行政区划链（天空之城（雨花万象店）/宝贝王 → CN-32/CN-3201，银河系（印象城店）→ CN-21/CN-2102 的 address.region.name.zh），列表条目的 value/hasChildren 键按顶层 API 形态补齐"
+ },
+ "": [
+  {
+   "id": "CN",
+   "label": "China",
+   "value": "CN",
+   "hasChildren": true
+  },
+  {
+   "id": "US",
+   "label": "United States",
+   "value": "US",
+   "hasChildren": true
+  },
+  {
+   "id": "JP",
+   "label": "Japan",
+   "value": "JP",
+   "hasChildren": true
+  },
+  {
+   "id": "ID",
+   "label": "Indonesia",
+   "value": "ID",
+   "hasChildren": true
+  },
+  {
+   "id": "KR",
+   "label": "South Korea",
+   "value": "KR",
+   "hasChildren": true
+  }
+ ],
+ "CN": [
+  {
+   "id": "CN-32",
+   "label": "江苏省",
+   "value": "CN-32",
+   "hasChildren": true
+  },
+  {
+   "id": "CN-21",
+   "label": "辽宁省",
+   "value": "CN-21",
+   "hasChildren": true
+  }
+ ],
+ "CN-32": [
+  {
+   "id": "CN-3201",
+   "label": "南京市",
+   "value": "CN-3201",
+   "hasChildren": true
+  }
+ ],
+ "CN-21": [
+  {
+   "id": "CN-2102",
+   "label": "大连市",
+   "value": "CN-2102",
+   "hasChildren": true
+  }
+ ]
+}

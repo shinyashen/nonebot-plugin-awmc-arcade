@@ -1,0 +1,36 @@
+{
+  "captured_at": "2026-09-29",
+  "policy": "测试数据一律取材真实快照；随版本推进失效的「当前态」场景允许构造，须在本文件或 fixture 注明构造语义。Nearcade 开发令牌为上游公开默认值，不得写入任何文件",
+  "sources": {
+    "shop_detail": {
+      "url": "https://nearcade.cn/api/shops/14656",
+      "file": "shop_tenshi_detail.json",
+      "note": "真实店「天空之城（雨花万象店）」详情原文（雨花台区向秀路1号·L3·L301，maimai DX 2 台、gameId 14656000）"
+    },
+    "shop_attendance": {
+      "url": "https://nearcade.cn/api/shops/14656/attendance",
+      "file": "shop_tenshi_attendance.json",
+      "note": "真实出勤响应：total=0（采集时无人上报，即「尚未更新」语义）"
+    },
+    "discover": {
+      "url": "https://nearcade.cn/api/discover?latitude=31.960541&longitude=118.732649&radius=10",
+      "file": "discover_yuhua.json",
+      "note": "南京雨花万象天地坐标附近的真实发现列表裁剪：原 16 家取前 3 家（天空之城 36 米 / 宝贝王 143 米 / 菲游乐金陵天地 2.4 公里），metro 交通段裁剪不取"
+    },
+    "search": {
+      "url": "https://nearcade.cn/api/shops?q=天空之城&page=1",
+      "file": "search_page1.json",
+      "note": "实测该查询返回未过滤全量列表 totalCount=7265（疑上游未按 q 过滤，2026-09-29 采坑记录）；页 1 原 48 家裁剪取 2 家真实条目（贵溪天空之星 id 14768 / 1-7PLAY(西美花街店) id 14017）。真实翻页第二页无独立快照，翻页场景复用本页条目充任后续页候选"
+    },
+    "regions": {
+      "url": "https://nearcade.cn/api/regions",
+      "file": "regions_fragments.json",
+      "note": "详见该文件内 _meta：顶层国家列表裁剪原文，省/市级片段取自真实店铺记录的行政区划链"
+    }
+  },
+  "constructed_scenarios": [
+    "人数合并/对齐场景的云端 total（5/6/10/99）为构造值：真实快照 total=0 是「无人上报」语义，合并语义需非零对照",
+    "discover「未知距离」容错分支：真实列表条目距离均为数值，构造字符串距离覆盖该分支",
+    "地区检索 0 结果（「未收录」）场景：真实南京市收录丰富，构造空搜索响应验证分支"
+  ]
+}
