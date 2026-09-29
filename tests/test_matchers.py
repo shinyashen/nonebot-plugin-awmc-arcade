@@ -199,7 +199,7 @@ async def test_count_update_flow(app: App):
 
 
 async def test_silent_mode_suppresses_update(app: App, monkeypatch):
-    """静默模式（SUPERUSER）：上报不回复。"""
+    """静默模式（SUPERUSER）：上报不回成功回复，错误提示保留。"""
     import nonebot
 
     from nonebot_plugin_awmc_arcade import silent_on, count_update
@@ -210,7 +210,7 @@ async def test_silent_mode_suppresses_update(app: App, monkeypatch):
         app,
         silent_on,
         _event("静默监听模式"),
-        "已开启静默监听模式：人数上报不再回复，仅同步云端",
+        "已开启静默监听模式：人数上报仅省略成功回复，错误提示保留",
     )
 
     with respx.mock:
@@ -224,8 +224,15 @@ async def test_silent_mode_suppresses_update(app: App, monkeypatch):
 
 
 async def test_queue_flow(app: App):
-    """排卡 → 现状 → 延后 → 上机轮转 → 退勤全链路。"""
-    from nonebot_plugin_awmc_arcade import go_on, get_in, get_run, put_off, show_list
+    """排卡 → 现状 → 延后 → 上机轮转 → 退勤 → 闭店全链路。"""
+    from nonebot_plugin_awmc_arcade import (
+        go_on,
+        get_in,
+        get_run,
+        put_off,
+        show_list,
+        shut_down,
+    )
 
     await _open_group_with_arcade()
     await _reply(
@@ -260,6 +267,16 @@ async def test_queue_flow(app: App):
     )
     await _reply(app, get_run, _event("退勤", user_id=222), "乙从测试店退勤成功")
     await _reply(app, get_run, _event("退勤", user_id=222), "您未加入排卡")
+
+    # 闭店清队：回显真实清理人数（此前硬编码 0）
+    await _reply(app, shut_down, _event("闭店 测试店"), "只有管理员能够闭店")
+    await _reply(
+        app,
+        shut_down,
+        _event("闭店 测试店", role="admin"),
+        "闭店成功，已清空排队 1 人",
+    )
+    await _reply(app, show_list, _event("排卡现状 测试店"), "测试店机厅排卡如下：\n")
 
 
 async def test_alias_and_map_commands(app: App):

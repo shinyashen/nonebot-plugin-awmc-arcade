@@ -251,7 +251,11 @@ async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
     if isinstance(ctx, str):
         await silent_on.finish(ctx)
     if await store.set_silent(ctx[0], True):
-        await silent_on.finish("已开启静默监听模式：人数上报不再回复，仅同步云端")
+        # 静默只吞上传结果回复：非法数值/无店铺关联/无上传通道等错误提示
+        # 保留（否则问题被无声吞掉），文案与实际行为对齐
+        await silent_on.finish(
+            "已开启静默监听模式：人数上报仅省略成功回复，错误提示保留"
+        )
     await silent_on.finish(_NOT_OPEN)
 
 
@@ -653,7 +657,7 @@ async def _(
     )
     if reply is not None:
         await count_update.finish(reply)
-    # 静默模式吞掉确认回复；block=False 不拦截其他插件
+    # 静默模式吞掉上传结果回复；block=False 不拦截其他插件
 
 
 @count_query.handle()
@@ -799,8 +803,8 @@ async def _(
     entry = await service.resolve_arcade(gid, name)
     if entry is None:
         await shut_down.finish("没有该机厅，若需要可使用添加机厅功能")
-    await store.clear_queue(gid, entry.key)
-    await shut_down.finish("闭店成功，当前排队 0 人")
+    cleared = await store.clear_queue(gid, entry.key)
+    await shut_down.finish(f"闭店成功，已清空排队 {cleared} 人")
 
 
 # ---- 会话消费（搜索选择 / 缺参追问） ----

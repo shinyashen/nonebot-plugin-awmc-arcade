@@ -10,7 +10,7 @@ awmc-helper 生态第三方插件，由 YuuzukiRin/nonebot_plugin_mai_arcade v0.
 - 会话：``got``/``pause`` 与裸 1-6 正则（会吞全群单个数字消息）→ TTL 会话表
   + priority=0 消费 matcher（``session.py``）；
 - 静默监听模式持久化（上游 block_group 为内存 set，重启即丢），语义收敛为
-  「只吞人数上报确认，查询照常回答」；
+  「人数上报仅省略成功回复，错误提示保留，查询照常回答」；
 - 排卡队列按用户 id 记账（上游按昵称，重名/改名会错位），展示仍用入队昵称；
 - 私聊扩权（上游没有）：SUPERUSER 或目标群管理员可在私聊经「管理群 <群号>」
   上下文或前导群号执行管理/查询指令，身份经 get_group_member_info 校验；

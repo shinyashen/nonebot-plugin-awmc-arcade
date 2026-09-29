@@ -284,7 +284,7 @@ async def test_private_silent_superuser(app: App, monkeypatch):
         app,
         silent_on,
         _private_event("静默监听模式 123456"),
-        "已开启静默监听模式：人数上报不再回复，仅同步云端",
+        "已开启静默监听模式：人数上报仅省略成功回复，错误提示保留",
     )
     cfg = await store.get_group(123456)
     assert cfg is not None
