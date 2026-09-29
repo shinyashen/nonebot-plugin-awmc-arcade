@@ -243,10 +243,13 @@ async def count_query_reply(entry: ArcadeEntry) -> str:
     group_id, arcade_id = entry.group_id, entry.key
     shop_id = await _shop_id_of(entry)
     if shop_id:
-        cloud = await nearcade.get_attendance(shop_id)
-        current = await store.current_count(group_id, arcade_id)
-        if cloud is not None and cloud != current:
-            await store.reset_count(group_id, arcade_id, cloud, "Nearcade")
+        # 对齐段（读云端→比对→回写）与上报持同一把锁：无锁时查询读旧值
+        # 挂起期间一次上报完成，恢复后 reset_count(旧云端值) 会覆盖上报结果
+        async with _count_lock(group_id, arcade_id):
+            cloud = await nearcade.get_attendance(shop_id)
+            current = await store.current_count(group_id, arcade_id)
+            if cloud is not None and cloud != current:
+                await store.reset_count(group_id, arcade_id, cloud, "Nearcade")
     count = await store.current_count(group_id, arcade_id)
     if count <= 0:
         return f"[{entry.name}] 今日人数尚未更新\n你可以爽霸机了\n快去出勤吧！"

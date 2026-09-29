@@ -251,6 +251,61 @@ async def test_count_query_and_cloud_align():
     assert await store.current_count(876, entry.key) == 6
 
 
+async def test_count_query_alignment_holds_lock(monkeypatch):
+    """云端对齐段持锁（回归）：查询读云端挂起期间完成的上报不被覆盖。
+
+    时序复现：查询持锁读云端挂起 → +1 上报在对齐结束后才执行 →
+    查询恢复后不得用挂起前取到的旧云端值 reset_count 覆盖上报结果。
+    """
+    import asyncio
+
+    import respx
+
+    from nonebot_plugin_awmc_arcade import service, nearcade
+    from nonebot_plugin_awmc_arcade.store import store
+
+    entry = await _arcade_with_shop()
+    real_get_attendance = nearcade.get_attendance
+    entered = asyncio.Event()  # 查询侧已进入云端读取（挂起点）
+    release = asyncio.Event()  # 放行挂起的云端读取
+    first_call = True
+
+    async def slow_get_attendance(shop_id: str) -> int | None:
+        nonlocal first_call
+        if first_call:
+            first_call = False
+            entered.set()
+            await release.wait()
+        return await real_get_attendance(shop_id)
+
+    monkeypatch.setattr(nearcade, "get_attendance", slow_get_attendance)
+
+    with respx.mock:
+        respx.get(f"{BASE}/api/shops/{TENSHI_ID}/attendance").respond(json=TENSHI_ATT)
+        respx.get(f"{BASE}/api/shops/{TENSHI_ID}").respond(json=DETAIL)
+        respx.post(f"{BASE}/api/shops/{TENSHI_ID}/attendance").mock(
+            return_value=Response(200, json={})
+        )
+        query_task = asyncio.create_task(service.count_query_reply(entry))
+        await asyncio.wait_for(entered.wait(), timeout=5)
+
+        # 对齐持锁期间上报无法插队：本地账本保持 0
+        apply_task = asyncio.create_task(
+            service.apply_count_update(entry, service.OP_INC, 1, "小明", silent=False)
+        )
+        for _ in range(10):
+            await asyncio.sleep(0)
+        assert not apply_task.done()
+        assert await store.current_count(876, entry.key) == 0
+
+        # 放行：对齐读到旧云端值 0 与本地一致不回写，随后上报正常完成
+        release.set()
+        await asyncio.wait_for(apply_task, timeout=5)
+        await asyncio.wait_for(query_task, timeout=5)
+
+    assert await store.current_count(876, entry.key) == 1
+
+
 async def test_updated_today_reply():
     from nonebot_plugin_awmc_arcade import service
     from nonebot_plugin_awmc_arcade.store import store
