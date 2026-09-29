@@ -282,13 +282,13 @@ async def count_query_reply(entry: ArcadeEntry) -> str:
 
 
 async def updated_today_reply(group_id: int) -> str:
-    """「mai/机厅人数」：当日有更新记录的机厅列表。"""
+    """「mai/机厅人数」：当日有更新记录的机厅列表（汇总单次拉全）。"""
+    stats = await store.count_today_stats(group_id)
     lines = []
     for entry in await store.list_arcades(group_id):
-        last = await store.last_count_update(group_id, entry.key)
-        if last is None:
+        if (stat := stats.get(entry.key)) is None:
             continue
-        count = await store.current_count(group_id, entry.key)
+        last, count = stat
         by = last.updated_by or "未知"
         lines.append(
             f"[{entry.name}] {count}人 \n（{by} · {last.updated_at.strftime('%H:%M')}）"

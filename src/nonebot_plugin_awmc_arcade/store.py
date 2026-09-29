@@ -32,7 +32,7 @@ from datetime import datetime
 
 from pydantic import NaiveDatetime
 from sqlmodel import Field, SQLModel, col, delete, select
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import UniqueConstraint, func
 from sqlalchemy.exc import OperationalError as SAOperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from nonebot_plugin_localstore import get_data_dir
@@ -637,18 +637,14 @@ class ArcadeStore:
     async def clear_queue(group_id: int, arcade_id: int) -> int:
         """清空某机厅队列（闭店），返回清掉的人数。"""
         async with AsyncSession(get_engine()) as session:
-            items = (
-                await session.exec(
-                    select(QueueItem).where(
-                        QueueItem.group_id == group_id,
-                        QueueItem.arcade_id == arcade_id,
-                    )
+            result = await session.exec(
+                delete(QueueItem).where(
+                    QueueItem.group_id == group_id,
+                    QueueItem.arcade_id == arcade_id,
                 )
-            ).all()
-            for item in items:
-                await session.delete(item)
+            )
             await session.commit()
-            return len(items)
+            return result.rowcount
 
     # ---- 人数 ----
 
@@ -677,6 +673,37 @@ class ArcadeStore:
                     .limit(1)
                 )
             ).first()
+
+    @staticmethod
+    async def count_today_stats(group_id: int) -> dict[int, tuple[CountLog, int]]:
+        """当日人数汇总：arcade_id → (最新流水行, 当日 delta 合计)。
+
+        「机厅人数」列表用：两条分组查询（每机厅最新一行 + delta 合计）
+        一次拉全，替代此前每机厅 2 次查询的 N+1。
+        """
+        async with AsyncSession(get_engine()) as session:
+            latest_ids = (
+                select(func.max(CountLog.id))
+                .where(CountLog.group_id == group_id)
+                .group_by(col(CountLog.arcade_id))
+            )
+            latest_rows = (
+                await session.exec(
+                    select(CountLog).where(col(CountLog.id).in_(latest_ids))
+                )
+            ).all()
+            sums = (
+                await session.exec(
+                    select(CountLog.arcade_id, func.sum(CountLog.delta))
+                    .where(CountLog.group_id == group_id)
+                    .group_by(col(CountLog.arcade_id))
+                )
+            ).all()
+            totals = {int(arcade_id): int(total or 0) for arcade_id, total in sums}
+            return {
+                row.arcade_id: (row, totals.get(row.arcade_id, 0))
+                for row in latest_rows
+            }
 
     @staticmethod
     async def add_count_log(

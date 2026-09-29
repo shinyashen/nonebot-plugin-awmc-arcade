@@ -143,6 +143,29 @@ async def test_count_log_and_reset():
     assert await store.current_count(gid, aid) == 0
 
 
+async def test_count_today_stats():
+    """当日汇总：每机厅最新一行 + delta 合计一次拉全（无流水机厅不出现）。"""
+    from nonebot_plugin_awmc_arcade.store import store
+
+    await store.add_group(876)
+    e1 = await _make_arcade(name="店一")
+    e2 = await _make_arcade(name="店二")
+    e3 = await _make_arcade(name="店三")
+    await store.add_count_log(876, e1.key, 3, "u1")
+    await store.add_count_log(876, e1.key, -1, "u2")
+    await store.reset_count(876, e2.key, 7, "Nearcade")
+
+    stats = await store.count_today_stats(876)
+    assert set(stats) == {e1.key, e2.key}
+    last1, total1 = stats[e1.key]
+    assert total1 == 2
+    assert last1.updated_by == "u2"  # 取最新一行
+    last2, total2 = stats[e2.key]
+    assert total2 == 7
+    assert last2.updated_by == "Nearcade"
+    assert e3.key not in stats
+
+
 async def test_meta_and_session():
     from nonebot_plugin_awmc_arcade import session
     from nonebot_plugin_awmc_arcade.store import store
