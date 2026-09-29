@@ -65,27 +65,32 @@ def pop(group_id: int, user_id: str) -> PendingSession | None:
 
 # ---- 私聊扩权：「管理群 <群号>」工作上下文 ----
 # 按用户维度记忆私聊管理目标，后续指令免带群号；TTL 独立于交互会话
-# （config.awmc_arcade_manage_ttl，默认 30 分钟）。
+# （config.awmc_arcade_manage_ttl，默认 30 分钟）。复用 core 泛型
+# TtlSessionStore（monotonic 口径），此前手写 time.time() 墙钟 dict。
 
-_manage: dict[str, tuple[int, float]] = {}
+
+@dataclass
+class ManageTarget(TtlSession):
+    """私聊管理目标群（expire_at 由 set_manage_group 按 ttl 填写）。"""
+
+    group_id: int
+
+
+_manage: TtlSessionStore[str, ManageTarget] = TtlSessionStore()
 
 
 def set_manage_group(user_id: str, group_id: int, ttl: int) -> None:
     """设置/覆盖管理目标群。"""
-    _manage[user_id] = (group_id, time.time() + ttl)
+    _manage.start(
+        user_id, ManageTarget(group_id=group_id, expire_at=time.monotonic() + ttl)
+    )
 
 
 def get_manage_group(user_id: str) -> int | None:
     """取管理目标群（过期即清除并返回 None）。"""
-    item = _manage.get(user_id)
-    if item is None:
-        return None
-    if item[1] <= time.time():
-        del _manage[user_id]
-        return None
-    return item[0]
+    return target.group_id if (target := _manage.get(user_id)) else None
 
 
 def clear_manage_group(user_id: str) -> bool:
     """清除管理目标群，返回是否存在。"""
-    return _manage.pop(user_id, None) is not None
+    return _manage.pop(user_id) is not None
