@@ -95,9 +95,11 @@ async def compute_count(
 
 
 async def _shop_id_of(entry: ArcadeEntry) -> str | None:
-    """店铺 id：优先条目缓存，其次按添加顺序扫描地图网址提取。"""
+    """店铺 id：条目缓存 → 条目详情链接解析 → 按添加顺序扫描地图网址。"""
     if entry.nearcade_shop_id:
         return entry.nearcade_shop_id
+    if entry.nearcade_url and (sid := shop_id_from_url(entry.nearcade_url)):
+        return sid
     for url in await store.list_maps(entry.group_id, entry.key):
         if sid := shop_id_from_url(url):
             return sid
@@ -105,8 +107,14 @@ async def _shop_id_of(entry: ArcadeEntry) -> str | None:
 
 
 def shop_id_from_url(url: str) -> str | None:
-    """从 Nearcade 店铺链接提取店铺 id（上游以地图网址为店铺关联载体）。"""
-    m = re.search(r"/(\d+)/?$", url)
+    """从 Nearcade 店铺网页链接提取店铺 id（域名限定，防误绑任意店铺）。
+
+    此前的「路径数字后缀」启发式会把任意以数字结尾的网址解析成店铺 id
+    （读数合并进本地账本、上传写进别人店铺），故收紧为只认
+    nearcade.cn/shops/ 的全局路径——按数据源隔离的编号空间与全局 id
+    无关（见 nearcade.py 模块注记）。
+    """
+    m = re.fullmatch(r"(?:https?://)?(?:www\.)?nearcade\.cn/shops/(\d+)/?", url.strip())
     return m.group(1) if m else None
 
 

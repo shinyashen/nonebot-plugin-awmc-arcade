@@ -106,7 +106,11 @@ class ArcadeEntry(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     group_id: int = Field(index=True)
     name: str
-    # Nearcade 店铺信息（经搜索选择添加时写入；人数云同步依赖 shop_id）
+    # Nearcade 店铺信息（经搜索选择添加时写入）：
+    # nearcade_shop_id——人数云同步的店铺归属；
+    # nearcade_url——店铺详情链接，shop_id 缺失时兜底解析（service._shop_id_of）；
+    # nearcade_source——仅留档：按数据源隔离的编号空间与全局 id 无关，
+    # 不作链接/归属依据（见 nearcade.py 模块注记）
     nearcade_source: str | None = None
     nearcade_shop_id: str | None = None
     nearcade_url: str | None = None
@@ -386,26 +390,20 @@ class ArcadeStore:
 
     @staticmethod
     async def update_nearcade_info(
-        arcade_id: int,
-        *,
-        coutnum: int | None = None,
-        shop_id: str | None = None,
-        source: str | None = None,
-        url: str | None = None,
+        arcade_id: int, *, coutnum: int | None = None
     ) -> None:
-        """回填 Nearcade 店铺信息 / 机台数（云同步过程中刷新）。"""
+        """回填 maimai 机台数（云同步过程中刷新）。
+
+        店铺关联（shop_id/url）只在搜索选择落库时写入（service 层
+        _add_from_shop），无回写通道——曾经的 shop_id/source/url 死参数
+        已随 L-16 收紧删除。
+        """
         async with AsyncSession(get_engine()) as session:
             entry = await session.get(ArcadeEntry, arcade_id)
             if entry is None:
                 return
             if coutnum is not None:
                 entry.coutnum = coutnum
-            if shop_id is not None:
-                entry.nearcade_shop_id = shop_id
-            if source is not None:
-                entry.nearcade_source = source
-            if url is not None:
-                entry.nearcade_url = url
             await session.commit()
 
     # ---- 别名 ----

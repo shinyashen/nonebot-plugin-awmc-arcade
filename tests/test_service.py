@@ -105,6 +105,50 @@ async def test_resolve_arcade_index_name_alias():
     assert await service.resolve_arcade(876, "不存在") is None
 
 
+def test_shop_id_from_url_domain_limited():
+    """店铺 id 只认 nearcade.cn/shops/ 全局路径（域名限定）。
+
+    此前的「路径数字后缀」启发式会把任意以数字结尾的网址解析成店铺 id，
+    读数合并/上传会写进别人店铺。
+    """
+    from nonebot_plugin_awmc_arcade import service
+
+    assert service.shop_id_from_url("https://nearcade.cn/shops/14656") == "14656"
+    assert service.shop_id_from_url("https://nearcade.cn/shops/14656/") == "14656"
+    assert service.shop_id_from_url("nearcade.cn/shops/14656") == "14656"
+    # 普通以数字结尾的非 nearcade 链接不再被误解析
+    assert service.shop_id_from_url("https://example.com/map/123") is None
+    assert service.shop_id_from_url("https://nearcade.cn/discover?x=14656") is None
+    # 按数据源隔离的编号路径不认（与全局 id 无关，见 nearcade.py 注记）
+    assert service.shop_id_from_url("https://nearcade.cn/shops/bemanicn/123") is None
+
+
+async def test_shop_id_of_fallback_order():
+    """店铺 id 兜底顺序：条目缓存 → nearcade_url 解析 → 地图扫描。"""
+    from nonebot_plugin_awmc_arcade import service
+    from nonebot_plugin_awmc_arcade.store import store
+
+    await store.add_group(876)
+    # 条目缓存优先
+    e1 = await store.add_arcade(876, "店一", shop_id="14656")
+    assert e1 is not None
+    assert await service._shop_id_of(e1) == "14656"
+    # shop_id 缺失时解析条目详情链接
+    e2 = await store.add_arcade(876, "店二", shop_url="https://nearcade.cn/shops/14656")
+    assert e2 is not None
+    assert await service._shop_id_of(e2) == "14656"
+    # 地图扫描兜底仍生效
+    e3 = await store.add_arcade(876, "店三")
+    assert e3 is not None
+    await store.add_map(876, e3.key, "https://nearcade.cn/shops/14656")
+    assert await service._shop_id_of(e3) == "14656"
+    # 数字结尾的普通地图网址不再被误绑
+    e4 = await store.add_arcade(876, "店四")
+    assert e4 is not None
+    await store.add_map(876, e4.key, "https://example.com/map/123")
+    assert await service._shop_id_of(e4) is None
+
+
 async def test_apply_count_local_only():
     from nonebot_plugin_awmc_arcade import service
     from nonebot_plugin_awmc_arcade.store import store
