@@ -215,7 +215,8 @@ async def test_private_add_arcade_chain(app: App, monkeypatch):
     async def _forward_fail(bot, entries, **kwargs):
         return False
 
-    monkeypatch.setattr(arcade_matchers, "try_send_forward", _forward_fail)
+    # 转发出口收敛在 matchers._common（定义该名字的模块，patch 包命名空间无效）
+    monkeypatch.setattr(arcade_matchers._common, "try_send_forward", _forward_fail)
     monkeypatch.setattr(nonebot.get_driver().config, "superusers", {"10"})
 
     await store.add_group(123456)

@@ -44,7 +44,7 @@ async def _stores(tmp_path):
     """库文件重定向 + 清空内存会话/缓存（每用例独立）。"""
     from nonebot_plugin_awmc_arcade import session
     from nonebot_plugin_awmc_arcade.store import init_store, set_db_file
-    from nonebot_plugin_awmc_arcade.matchers import _admin_cache
+    from nonebot_plugin_awmc_arcade.matchers._common import _admin_cache
 
     await set_db_file(tmp_path / "arcade.db")
     await init_store()

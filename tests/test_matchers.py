@@ -123,7 +123,8 @@ async def test_arcade_manage_flow(app: App, monkeypatch):
     async def _forward_fail(bot, entries, **kwargs):
         return False
 
-    monkeypatch.setattr(arcade_matchers, "try_send_forward", _forward_fail)
+    # 转发出口收敛在 matchers._common（定义该名字的模块，patch 包命名空间无效）
+    monkeypatch.setattr(arcade_matchers._common, "try_send_forward", _forward_fail)
 
     await _reply(
         app,
@@ -382,9 +383,10 @@ async def test_help(app: App, monkeypatch):
     async def forward_fail(bot, entries, **kwargs):
         return False
 
-    monkeypatch.setattr(arcade_matchers, "try_send_forward", forward_ok)
+    # 转发出口收敛在 matchers._common（定义该名字的模块，patch 包命名空间无效）
+    monkeypatch.setattr(arcade_matchers._common, "try_send_forward", forward_ok)
     await _no_reply(app, arcade_help, _event("机厅help"))
-    monkeypatch.setattr(arcade_matchers, "try_send_forward", forward_fail)
+    monkeypatch.setattr(arcade_matchers._common, "try_send_forward", forward_fail)
     await _reply(app, arcade_help, _event("机厅help"), HELP_TEXT)
 
 
@@ -686,7 +688,7 @@ async def test_tuwen_card_with_amap_string_jumpurl(app: App):
 def test_search_gate_rejects_yuanming_without_query():
     """地区全量检索（无关键词）的会话：「原名」不消费不吞消息。"""
     from nonebot_plugin_awmc_arcade import session
-    from nonebot_plugin_awmc_arcade.matchers import _valid_search_choice
+    from nonebot_plugin_awmc_arcade.matchers.consumer import _valid_search_choice
 
     session.start(
         session.KIND_SEARCH, 876, "u1", payload={"query": "", "shops": [SHOP]}
@@ -713,7 +715,7 @@ def test_command_heads_include_command_start_prefixes():
     """
     from nonebot import get_driver
 
-    from nonebot_plugin_awmc_arcade.matchers import _COMMAND_HEADS
+    from nonebot_plugin_awmc_arcade.matchers.consumer import _COMMAND_HEADS
 
     starts = get_driver().config.command_start
     assert "添加群聊" in _COMMAND_HEADS  # command_start 含 ""
