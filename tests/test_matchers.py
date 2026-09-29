@@ -373,9 +373,19 @@ async def test_help(app: App, monkeypatch):
 
     core.forward 本身由主插件侧测试覆盖，这里只打桩验证本插件的两态分流。
     """
+    from nonebot_plugin_awmc_helper.core.help import (
+        CategoryPage,
+        page_text,
+        help_registry,
+    )
+
     import nonebot_plugin_awmc_arcade.matchers as arcade_matchers
     from nonebot_plugin_awmc_arcade import arcade_help
-    from nonebot_plugin_awmc_arcade.matchers import HELP_TEXT
+
+    # 帮助文案单源：注册表「排卡」类别页的纯文本形态（降级素材）
+    HELP_TEXT = page_text(
+        help_registry, CategoryPage(help_registry.categories["arcade"])
+    )
 
     async def forward_ok(bot, entries, **kwargs):
         return True
