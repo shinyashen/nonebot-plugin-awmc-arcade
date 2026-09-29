@@ -16,8 +16,9 @@ service/store/nearcade。消息文案与上游 mai_arcade 保持一致（个别�
 私聊扩权（上游没有的能力）：SUPERUSER 或目标群管理员可在私聊执行上述
 管理/查询类指令，目标群经「管理群 <群号>」上下文或指令前导群号指定，
 身份经 get_group_member_info 直查校验——详见 :func:`_target_group`。
-人数上报、排卡操作与位置监听保持仅群聊（排队/上报者是群成员本人，
-私聊无语义）。
+排除项：``updated_list``（mai/机厅人数 当日更新列表）天然群维度，不在
+扩权面内，私聊无响应属有意。人数上报、排卡操作与位置监听保持仅群聊
+（排队/上报者是群成员本人，私聊无语义）。
 
 会话型交互（搜索选择 1-6、指令缺参追问）走 TTL 会话表，由 priority=0 的
 ``session_consumer`` 统一消费，不用 ``got``（awmc 生态约定）。
@@ -28,7 +29,7 @@ import sys
 import json
 import time
 
-from nonebot import logger, on_command, on_message, on_fullmatch
+from nonebot import logger, get_driver, on_command, on_message, on_fullmatch
 from nonebot.params import CommandArg
 from nonebot.typing import T_State
 from nonebot.adapters import Bot
@@ -1059,20 +1060,27 @@ def _collect_command_heads() -> frozenset[str]:
 
     会话消费者（priority=0）用它识别「新指令进入」——此前与各 on_command
     手工双写，新增指令漏登记会被静默吞掉，故收敛为单一来源派生。
+    rule 内保存的是裸命令头（command_start 前缀由 TrieRule 在预处理阶段
+    匹配），这里按 driver.config.command_start 笛卡尔补前缀：部署配
+    {"/"} 时追问期也能识别 /添加群聊 等带前缀变体；含 ""（如测试环境
+    {"", "/"}）时裸头同样在集合里，行为不变。
     """
     from nonebot.rule import CommandRule, FullmatchRule
 
+    starts = get_driver().config.command_start or {""}
     heads: set[str] = set()
     for name in dir(sys.modules[__name__]):
         obj = getattr(sys.modules[__name__], name)
         if not isinstance(obj, type) or not hasattr(obj, "rule"):
             continue
+        raw: set[str] = set()
         for dep in obj.rule.checkers:
             call = getattr(dep, "call", None)
             if isinstance(call, CommandRule):
-                heads.update(cmd[0] for cmd in call.cmds)
+                raw.update(cmd[0] for cmd in call.cmds)
             elif isinstance(call, FullmatchRule):
-                heads.update(call.msg)
+                raw.update(call.msg)
+        heads.update(f"{start}{head}" for head in raw for start in starts)
     return frozenset(heads)
 
 

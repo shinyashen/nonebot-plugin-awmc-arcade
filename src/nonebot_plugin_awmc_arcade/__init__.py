@@ -99,4 +99,6 @@ from .matchers import (  # noqa: F401
 require("nonebot_plugin_apscheduler")
 from nonebot_plugin_apscheduler import scheduler
 
-scheduler.add_job(daily_reset, "cron", hour=0, minute=0)
+# 每日 0 点清零：misfire 宽限 1 小时，错峰唤醒（进程被挂起/调度延迟）
+# 不再丢整日清零（停机跨天由 ensure_daily_reset 启动补偿兜底）
+scheduler.add_job(daily_reset, "cron", hour=0, minute=0, misfire_grace_time=3600)

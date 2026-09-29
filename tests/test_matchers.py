@@ -702,3 +702,21 @@ def test_search_gate_rejects_yuanming_without_query():
     pending = session.get(876, "u1")
     assert pending is not None
     assert _valid_search_choice("原名", pending) is True
+
+
+def test_command_heads_include_command_start_prefixes():
+    """命令头按 command_start 笛卡尔补前缀（回归）。
+
+    rule 内只存裸命令头；测试环境 command_start={"", "/"}，派生结果须
+    同时含裸头与「/」前缀变体——否则部署配 {"/"} 时追问期会吞掉
+    /添加群聊 等带前缀的新指令。
+    """
+    from nonebot import get_driver
+
+    from nonebot_plugin_awmc_arcade.matchers import _COMMAND_HEADS
+
+    starts = get_driver().config.command_start
+    assert "添加群聊" in _COMMAND_HEADS  # command_start 含 ""
+    if "/" in starts:
+        assert "/添加群聊" in _COMMAND_HEADS
+    assert "机厅人数" in _COMMAND_HEADS  # on_fullmatch 同样纳入
