@@ -207,11 +207,13 @@ async def _apply_count_update(
         await store.add_count_log(group_id, arcade_id, new_num - current, user_name)
 
     # 机台数与上传 gameId 同源自一次店铺详情请求；上传必须挂在
-    # maimai DX 机种上（店铺详情 games[0] 可能是太鼓等其他机种，
-    # 数错格会把人数写进别的游戏的出勤计数）
+    # maimai DX 机种上——店铺详情 games[0] 可能是太鼓等其他机种，
+    # 兜底取 games[0] 数错格会把人数写进别的游戏的出勤计数（纯太鼓店
+    # 经 URL 误绑时即命中），无该机种时 game_id 保持 None，走下方
+    # 「未获取上传通道」分支
     games = await _shop_games(shop_id)
-    game_id = next((g.get("gameId") for g in games), None)
     maimai_game = next((g for g in games if g.get("name") == "maimai DX"), None)
+    game_id = None
     coutnum = entry.coutnum
     if maimai_game is not None:
         coutnum = max(int(maimai_game.get("quantity", 1) or 1), 1)

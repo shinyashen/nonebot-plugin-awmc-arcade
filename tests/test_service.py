@@ -202,6 +202,35 @@ async def test_apply_count_upload_failures():
 
 
 @respx.mock
+async def test_apply_count_no_maimai_game_no_upload():
+    """纯太鼓店（详情无 maimai DX 机种）：不取 games[0] 兜底上传。
+
+    上传必须挂在 maimai DX 机种上——兜底取 games[0] 会把人数写进别的
+    游戏的出勤计数；无该机种时走「未获取上传通道」分支，仅记录本群。
+    """
+    from nonebot_plugin_awmc_arcade import service
+
+    entry = await _arcade_with_shop()
+    taiko_detail = {
+        "shop": {
+            "id": int(TENSHI_ID),
+            "name": TENSHI["name"],
+            "games": [{"name": "太鼓の達人", "gameId": 999, "quantity": 1}],
+        }
+    }
+    respx.get(f"{BASE}/api/shops/{TENSHI_ID}").respond(json=taiko_detail)
+    post_route = respx.post(f"{BASE}/api/shops/{TENSHI_ID}/attendance").mock(
+        return_value=Response(200, json={})
+    )
+    reply = await service.apply_count_update(
+        entry, service.OP_SET, 4, "小明", silent=False
+    )
+    assert reply is not None
+    assert "未能在 Nearcade 获取上传通道" in reply
+    assert not post_route.called
+
+
+@respx.mock
 async def test_count_query_and_cloud_align():
     from nonebot_plugin_awmc_arcade import service
     from nonebot_plugin_awmc_arcade.store import store
