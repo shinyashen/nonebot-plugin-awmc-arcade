@@ -393,9 +393,8 @@ async def _(
     event: MessageEvent,
     args: Message = CommandArg(),
 ):
-    parts = str(args).strip().split(maxsplit=1)
-    if len(parts) != 2:
-        await add_alias.finish("格式错误：添加机厅别名 <店名/序号> <别名>")
+    # 参数从剥掉前导群号后的文本切分：私聊「添加机厅别名 123456 店A 别B」
+    # 的首段 123456 是目标群号而非店名
     ctx = await _target_group(
         bot,
         event,
@@ -406,7 +405,10 @@ async def _(
     )
     if isinstance(ctx, str):
         await add_alias.finish(ctx)
-    gid, _, _ = ctx
+    gid, rest, _ = ctx
+    parts = rest.split(maxsplit=1)
+    if len(parts) != 2:
+        await add_alias.finish("格式错误：添加机厅别名 <店名/序号> <别名>")
     name, alias = parts[0], parts[1].strip()
     entry = await service.resolve_arcade(gid, name, by_alias=False)
     if entry is None:
@@ -425,9 +427,6 @@ async def _(
     event: MessageEvent,
     args: Message = CommandArg(),
 ):
-    parts = str(args).strip().split(maxsplit=1)
-    if len(parts) != 2:
-        await delete_alias.finish("格式错误：删除机厅别名 <店名/序号> <别名/序号>")
     ctx = await _target_group(
         bot,
         event,
@@ -438,7 +437,10 @@ async def _(
     )
     if isinstance(ctx, str):
         await delete_alias.finish(ctx)
-    gid, _, _ = ctx
+    gid, rest, _ = ctx
+    parts = rest.split(maxsplit=1)
+    if len(parts) != 2:
+        await delete_alias.finish("格式错误：删除机厅别名 <店名/序号> <别名/序号>")
     name, alias_ref = parts[0], parts[1].strip()
     entry = await service.resolve_arcade(gid, name, by_alias=False)
     if entry is None:
@@ -499,9 +501,6 @@ async def _(
     event: MessageEvent,
     args: Message = CommandArg(),
 ):
-    parts = str(args).strip().split(maxsplit=1)
-    if len(parts) != 2:
-        await add_map.finish("格式错误：添加机厅地图 <机厅名称/序号> <网址>")
     ctx = await _target_group(
         bot,
         event,
@@ -512,7 +511,10 @@ async def _(
     )
     if isinstance(ctx, str):
         await add_map.finish(ctx)
-    gid, _, _ = ctx
+    gid, rest, _ = ctx
+    parts = rest.split(maxsplit=1)
+    if len(parts) != 2:
+        await add_map.finish("格式错误：添加机厅地图 <机厅名称/序号> <网址>")
     name, url = parts[0], parts[1].strip()
     entry = await service.resolve_arcade(gid, name, by_alias=False)
     if entry is None:
@@ -531,9 +533,6 @@ async def _(
     event: MessageEvent,
     args: Message = CommandArg(),
 ):
-    parts = str(args).strip().split(maxsplit=1)
-    if len(parts) != 2:
-        await delete_map.finish("格式错误：删除机厅地图 <机厅名称/序号> <网址/序号>")
     ctx = await _target_group(
         bot,
         event,
@@ -544,7 +543,10 @@ async def _(
     )
     if isinstance(ctx, str):
         await delete_map.finish(ctx)
-    gid, _, _ = ctx
+    gid, rest, _ = ctx
+    parts = rest.split(maxsplit=1)
+    if len(parts) != 2:
+        await delete_map.finish("格式错误：删除机厅地图 <机厅名称/序号> <网址/序号>")
     name, url_ref = parts[0], parts[1].strip()
     entry = await service.resolve_arcade(gid, name, by_alias=False)
     if entry is None:

@@ -328,3 +328,36 @@ async def test_private_prefix_overrides_context(app: App, monkeypatch):
     from nonebot_plugin_awmc_arcade.store import store
 
     assert await store.get_group(123456) is not None
+
+
+async def test_private_two_param_commands(app: App, monkeypatch):
+    """前导群号 + 双参数指令（回归）：参数从剥掉群号后的文本切分。
+
+    此前 parts 从原始 args 切分在前、前导群号剥离在后且 rest 被弃，
+    「添加机厅别名 123456 店A 别B」会把群号当店名、后两段并成别名。
+    """
+    import nonebot
+
+    from nonebot_plugin_awmc_arcade import add_map, add_alias
+    from nonebot_plugin_awmc_arcade.store import store
+
+    monkeypatch.setattr(nonebot.get_driver().config, "superusers", {"10"})
+    await store.add_group(123456)
+    entry = await store.add_arcade(123456, "测试店")
+    assert entry is not None
+
+    await _run(
+        app,
+        add_alias,
+        _private_event("添加机厅别名 123456 测试店 别A"),
+        "已成功为 '测试店' 添加别名 '别A'",
+    )
+    assert await store.list_aliases(123456, entry.key) == ["别A"]
+
+    await _run(
+        app,
+        add_map,
+        _private_event("添加机厅地图 123456 测试店 https://example.com/m"),
+        "已成功为 '测试店' 添加机厅地图网址 'https://example.com/m'",
+    )
+    assert await store.list_maps(123456, entry.key) == ["https://example.com/m"]
