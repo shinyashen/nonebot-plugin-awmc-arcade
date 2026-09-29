@@ -153,12 +153,24 @@ async def _shop_games(shop_id: str) -> list[dict]:
     return (info or {}).get("shop", {}).get("games", [])
 
 
-async def _maimai_coutnum(entry: ArcadeEntry, shop_id: str) -> int:
-    """从云端店铺详情刷新 maimai DX 机台数（失败沿用条目缓存）。"""
-    for game in await _shop_games(shop_id):
+def maimai_game_of(games: list[dict], *, fallback: int = 1) -> tuple[int, int | None]:
+    """扫描云端机种列表取 maimai DX：返回 (机台数, 上传 gameId)。
+
+    上传必须挂在 maimai DX 机种上——店铺详情 games[0] 可能是太鼓等其他
+    机种，兜底取 games[0] 数错格会把人数写进别的游戏的出勤计数；无该
+    机种时 gameId 为 None（调用方走「未获取上传通道」分支），机台数取
+    ``fallback``（调用方条目缓存值）。
+    """
+    for game in games:
         if game.get("name") == "maimai DX":
-            return max(int(game.get("quantity", 1) or 1), 1)
-    return entry.coutnum
+            return max(int(game.get("quantity", 1) or 1), 1), game.get("gameId")
+    return fallback, None
+
+
+async def _maimai_coutnum(entry: ArcadeEntry, shop_id: str) -> int:
+    """从云端店铺详情刷新 maimai DX 机台数（无该机种沿用条目缓存）。"""
+    coutnum, _ = maimai_game_of(await _shop_games(shop_id), fallback=entry.coutnum)
+    return coutnum
 
 
 async def apply_count_update(
@@ -214,18 +226,12 @@ async def _apply_count_update(
     else:
         await store.add_count_log(group_id, arcade_id, new_num - current, user_name)
 
-    # 机台数与上传 gameId 同源自一次店铺详情请求；上传必须挂在
-    # maimai DX 机种上——店铺详情 games[0] 可能是太鼓等其他机种，
-    # 兜底取 games[0] 数错格会把人数写进别的游戏的出勤计数（纯太鼓店
-    # 经 URL 误绑时即命中），无该机种时 game_id 保持 None，走下方
-    # 「未获取上传通道」分支
-    games = await _shop_games(shop_id)
-    maimai_game = next((g for g in games if g.get("name") == "maimai DX"), None)
-    game_id = None
-    coutnum = entry.coutnum
-    if maimai_game is not None:
-        coutnum = max(int(maimai_game.get("quantity", 1) or 1), 1)
-        game_id = maimai_game.get("gameId")
+    # 机台数与上传 gameId 同源自一次店铺详情请求，扫描口径单源
+    # maimai_game_of（无 maimai DX 机种时 game_id 为 None，走下方
+    # 「未获取上传通道」分支，不得兜底取 games[0]）
+    coutnum, game_id = maimai_game_of(
+        await _shop_games(shop_id), fallback=entry.coutnum
+    )
     if coutnum != entry.coutnum:
         await store.update_nearcade_info(arcade_id, coutnum=coutnum)
     msg = estimate_msg(entry.name, new_num, coutnum, updated=True)
