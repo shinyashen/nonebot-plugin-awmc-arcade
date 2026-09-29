@@ -46,7 +46,6 @@ from .config import plugin_config
 
 _NOT_OPEN = "本群尚未开通排卡功能,请联系群主或管理员添加群聊"
 _NO_TARGET = "请先用 管理群 <群号> 设置管理目标，或在指令开头带上群号"
-_QUERY_DENY = "权限不足：仅该群管理员可查询"
 
 
 async def _is_admin(bot: Bot, event: GroupMessageEvent) -> bool:
@@ -210,7 +209,7 @@ async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
 
 @manage_group_cmd.handle()
 @handle_errors()
-async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
+async def _(event: MessageEvent, args: Message = CommandArg()):
     if isinstance(event, GroupMessageEvent):
         await manage_group_cmd.finish(
             "管理群 仅私聊可用：私聊 bot 后发送 管理群 <群号>"
@@ -640,7 +639,6 @@ count_query = on_message(priority=100, block=False, rule=_count_query_rule)
 @count_update.handle()
 @handle_errors()
 async def _(
-    bot: Bot,
     event: GroupMessageEvent,
     state: T_State,
 ):
@@ -661,7 +659,6 @@ async def _(
 @count_query.handle()
 @handle_errors()
 async def _(
-    bot: Bot,
     event: GroupMessageEvent,
     state: T_State,
 ):

@@ -6,9 +6,8 @@
 
 from nonebot import get_plugin_config
 from pydantic import BaseModel
-from nonebot_plugin_awmc_helper.config import plugin_config as awmc_helper_config
 
-__all__ = ["Config", "SmartTipRule", "awmc_helper_config", "plugin_config"]
+__all__ = ["Config", "SmartTipRule", "plugin_config"]
 
 
 class SmartTipRule(BaseModel):
