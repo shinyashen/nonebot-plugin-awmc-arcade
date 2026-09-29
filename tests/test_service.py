@@ -85,6 +85,40 @@ async def test_compute_count_bounds():
     assert isinstance(await service.compute_count(entry, service.OP_SET, 101), str)
 
 
+async def test_compute_count_explicit_zero_delta():
+    """显式 +0/-0 是「无变化」的合法路径，不再被 falsy 判定当作 +1。"""
+    from nonebot_plugin_awmc_arcade import service
+
+    entry = await _arcade_with_shop()
+    assert await service.compute_count(entry, service.OP_INC, 0) == (0, 0, 0)
+    assert await service.compute_count(entry, service.OP_DEC, 0) == (0, 0, 0)
+    # ++（无数字）仍按 +1 处理
+    assert await service.compute_count(entry, service.OP_INC, None) == (0, 1, 1)
+
+
+def test_card_jump_urls_news_shapes():
+    """news 为 dict 形态时包成单项列表复用逐项解析（jumpUrl/url 键都收）。"""
+    from nonebot_plugin_awmc_arcade.service import _card_jump_urls
+
+    # dict news + dict jumpUrl（含 url 键）：此前静默漏收
+    assert _card_jump_urls(
+        {"meta": {"news": {"jumpUrl": {"url": "https://a.example/x"}}}}
+    ) == ["https://a.example/x"]
+    # dict news 顶层 url 键：此前静默漏收
+    assert _card_jump_urls({"meta": {"news": {"url": "https://b.example/y"}}}) == [
+        "https://b.example/y"
+    ]
+    # dict news + 字符串 jumpUrl（真实样本形态，行为不变）
+    assert _card_jump_urls(
+        {"meta": {"news": {"jumpUrl": "https://surl.amap.com/abc"}}}
+    ) == ["https://surl.amap.com/abc"]
+    # 列表形态行为不变
+    assert _card_jump_urls(
+        {"meta": {"news": [{"jumpUrl": {"url": "https://c.example/z"}}]}}
+    ) == ["https://c.example/z"]
+    assert _card_jump_urls({}) == []
+
+
 async def test_resolve_arcade_index_name_alias():
     from nonebot_plugin_awmc_arcade import service
     from nonebot_plugin_awmc_arcade.store import store

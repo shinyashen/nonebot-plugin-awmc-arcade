@@ -82,7 +82,8 @@ async def compute_count(
     # 单次变更上限复用主插件同名配置（内置排卡同语义，单一来源）
     max_delta = awmc_helper_config.awmc_arcade_max_delta
     if op in (OP_INC, OP_DEC):
-        delta = num if num else 1
+        # 显式 +0/-0 是「无变化」的合法路径，不得因 falsy 判定当作 +1
+        delta = 1 if num is None else num
         if abs(delta) > max_delta:
             return "检测到非法数值，拒绝更新"
         new_num = current + (delta if op == OP_INC else -delta)
@@ -600,8 +601,14 @@ async def continue_search(
             return "没有更多结果了"
         shops.extend(new_shops)  # 追加：既有序号保持稳定
         payload["page"] = page + 1
-        payload["total"] = result.get("totalCount", total)
-        return _build_menu(query, payload["total"], shops)
+        # totalCount 强转：上游偶发返回字符串，下轮比较会 TypeError
+        payload["total"] = int(result.get("totalCount", total) or 0)
+        return _build_menu(
+            query,
+            payload["total"],
+            shops,
+            region_label=payload.get("region_label") or "",
+        )
     if choice.isdigit():
         idx = int(choice) - 1
         if not 0 <= idx < len(shops):
@@ -701,6 +708,10 @@ def _card_jump_urls(obj: dict) -> list[str]:
     """收集卡片里的跳转链接（news 兼容列表/字典、jumpUrl 兼容字典/字符串）。"""
     meta = obj.get("meta")
     news = meta.get("news") if isinstance(meta, dict) else None
+    if isinstance(news, dict):
+        # dict 形态包成单项列表，复用逐项解析（jumpUrl 含 url 键、
+        # news["url"] 与字符串 jumpUrl 都要收，静默漏收会拿不到坐标）
+        news = [news]
     urls: list[str] = []
     if isinstance(news, list):
         for item in news:
@@ -713,10 +724,6 @@ def _card_jump_urls(obj: dict) -> list[str]:
                 urls.append(jump)
             elif isinstance(item.get("url"), str):
                 urls.append(item["url"])
-    elif isinstance(news, dict):
-        jump = news.get("jumpUrl")
-        if isinstance(jump, str):
-            urls.append(jump)
     return urls
 
 
