@@ -13,7 +13,7 @@ from nonebot_plugin_awmc_helper.core.session_store import TtlSession, TtlSession
 from .config import plugin_config
 
 # 会话类别
-KIND_SEARCH = "search"  # 添加机厅的 Nearcade 搜索结果选择（回复 1-6）
+KIND_SEARCH = "search"  # 添加机厅的搜索结果选择（序号 / 更多 / 原名 / 取消）
 KIND_ASK = "ask"  # 指令缺参追问（下一条消息即参数）
 
 # ask 类别下的续接动作
@@ -61,6 +61,12 @@ def get(group_id: int, user_id: str) -> PendingSession | None:
 def pop(group_id: int, user_id: str) -> PendingSession | None:
     """取会话并结束（无论是否过期）。"""
     return _sessions.pop((group_id, user_id))
+
+
+def any_active() -> bool:
+    """是否存在任何活跃会话（供 priority=0 消费规则先行短路，
+    免每条群消息都做命令头扫描）。"""
+    return _sessions.any_active()
 
 
 # ---- 私聊扩权：「管理群 <群号>」工作上下文 ----

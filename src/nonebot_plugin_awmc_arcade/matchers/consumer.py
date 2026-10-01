@@ -73,6 +73,10 @@ def _valid_search_choice(text: str, pending: session.PendingSession) -> bool:
 
 async def _session_rule(state: T_State, event: MessageEvent) -> bool:
     """会话消费门禁：搜索会话吃动作词与有效序号；追问会话吃任意非指令消息。"""
+    # 表空短路：全群消息都过本规则（priority=0），无会话时命令头扫描与
+    # pop 均为无谓开销（pop 空表本就是 no-op，先短路语义不变）
+    if not session.any_active():
+        return False
     text = event.message.extract_plain_text().strip()
     if any(text.startswith(h) for h in _COMMAND_HEADS):
         session.pop(_scope(event), event.get_user_id())  # 新指令进入，丢会话

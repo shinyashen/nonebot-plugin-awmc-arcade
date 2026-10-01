@@ -116,6 +116,7 @@ class ArcadeEntry(SQLModel, table=True):
     nearcade_url: str | None = None
     # maimai DX 机台数（云端同步时刷新；估算等待时间的基数）
     coutnum: int = 1
+    # created_by——仅留档：添加者标识（近卡云侧无展示/审计消费方）
     created_by: str | None = None
     created_at: NaiveDatetime = Field(default_factory=datetime.now)
 
@@ -746,10 +747,9 @@ class ArcadeStore:
     async def clear_day_logs() -> int:
         """清零全部当日人数流水（每日 0 点 / 补偿执行），返回清掉的行数。"""
         async with AsyncSession(get_engine()) as session:
-            rows = (await session.exec(select(CountLog))).all()
-            await session.exec(delete(CountLog))
+            result = await session.exec(delete(CountLog))
             await session.commit()
-            return len(rows)
+            return result.rowcount or 0
 
     # ---- KV ----
 

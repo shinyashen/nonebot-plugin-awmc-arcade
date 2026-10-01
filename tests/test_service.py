@@ -49,6 +49,28 @@ async def _arcade_with_shop(**kw):
     return entry
 
 
+def test_maimai_game_of_title_id():
+    """机种识别 titleId 优先、name 仅兜底（titleId=1 已对上游
+    src/lib/constants.ts 核实为 maimai_dx；name 是展示文案可能改名）。"""
+    from nonebot_plugin_awmc_arcade import service
+
+    # titleId 命中（真实快照形态）
+    cout, gid = service.maimai_game_of(
+        [{"titleId": 1, "name": "whatever", "gameId": 7, "quantity": 3}]
+    )
+    assert (cout, gid) == (3, 7)
+    # 无 titleId 时 name 兜底（旧缓存数据/上游回退字段缺失）
+    cout, gid = service.maimai_game_of(
+        [{"name": "maimai DX", "gameId": 8, "quantity": 2}]
+    )
+    assert (cout, gid) == (2, 8)
+    # 纯太鼓店：不取 games[0] 兜底
+    cout, gid = service.maimai_game_of(
+        [{"titleId": 5, "name": "太鼓の達人", "gameId": 999, "quantity": 1}]
+    )
+    assert gid is None
+
+
 def test_parse_count_matrix():
     from nonebot_plugin_awmc_arcade import service
 
@@ -569,8 +591,8 @@ async def test_manage_replies():
     assert "找不到" in reply
 
     # 列表内序号解析
-    assert await service.resolve_from_list(["a", "b"], "2") == "b"
-    assert await service.resolve_from_list(["a"], "x") is None
+    assert service.resolve_from_list(["a", "b"], "2") == "b"
+    assert service.resolve_from_list(["a"], "x") is None
 
 
 async def test_discover_reply():

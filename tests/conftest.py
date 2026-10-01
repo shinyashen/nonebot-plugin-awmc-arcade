@@ -22,6 +22,17 @@ def nearcade_snapshot(name: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+@pytest.fixture(autouse=True)
+def _clear_shop_games_cache():
+    """清 service 店铺机种 TTL 缓存：同店铺 id 在多用例间复用 mock 详情，
+    不清会串味（缓存以 monotonic 计时，测试执行远快于 5 分钟 TTL）。"""
+    from nonebot_plugin_awmc_arcade import service
+
+    service._shop_games_cache.clear()
+    yield
+    service._shop_games_cache.clear()
+
+
 def pytest_collection_modifyitems(items: list[pytest.Item]):
     pytest_asyncio_tests = (item for item in items if is_async_test(item))
     session_scope_marker = pytest.mark.asyncio(loop_scope="session")

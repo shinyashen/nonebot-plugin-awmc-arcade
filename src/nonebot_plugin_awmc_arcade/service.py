@@ -120,7 +120,8 @@ def shop_id_from_url(url: str) -> str | None:
 
 
 def _tip_for(wait_minutes: int) -> str:
-    tips = plugin_config.awmc_arcade_smart_tips
+    # env 配置不保证有序，「首条命中」口径按 max_minutes 升序后取
+    tips = sorted(plugin_config.awmc_arcade_smart_tips, key=lambda r: r.max_minutes)
     return next((r.tip for r in tips if wait_minutes <= r.max_minutes), tips[-1].tip)
 
 
@@ -148,10 +149,26 @@ def estimate_msg(name: str, count: int, coutnum: int, *, updated: bool) -> str:
     )
 
 
+_SHOP_GAMES_TTL = 300.0
+"""店铺机种列表进程内缓存秒数（机台数/gameId 变化极低频，砍查询/上报各
+一次详情请求；出勤人数**不**在此列——人数同步要求实时）。"""
+_shop_games_cache: dict[str, tuple[float, list[dict]]] = {}
+
+
 async def _shop_games(shop_id: str) -> list[dict]:
-    """云端店铺的机种列表（失败返回空）。"""
+    """云端店铺的机种列表（失败返回空；带短 TTL 进程内缓存）。"""
+    cached = _shop_games_cache.get(shop_id)
+    if cached is not None and time.monotonic() - cached[0] < _SHOP_GAMES_TTL:
+        return cached[1]
     info = await nearcade.get_shop(shop_id)
-    return (info or {}).get("shop", {}).get("games", [])
+    games = (info or {}).get("shop", {}).get("games", [])
+    _shop_games_cache[shop_id] = (time.monotonic(), games)
+    return games
+
+
+MAIMAI_DX_TITLE_ID = 1
+"""maimai DX 的 titleId（上游 nearcade src/lib/constants.ts GAME_TITLES 已核：
+``{ id: 1, key: 'maimai_dx' }``）。titleId 是稳定枚举，name 展示文案仅兜底。"""
 
 
 def maimai_game_of(games: list[dict], *, fallback: int = 1) -> tuple[int, int | None]:
@@ -163,7 +180,7 @@ def maimai_game_of(games: list[dict], *, fallback: int = 1) -> tuple[int, int | 
     ``fallback``（调用方条目缓存值）。
     """
     for game in games:
-        if game.get("name") == "maimai DX":
+        if game.get("titleId") == MAIMAI_DX_TITLE_ID or game.get("name") == "maimai DX":
             return max(int(game.get("quantity", 1) or 1), 1), game.get("gameId")
     return fallback, None
 
@@ -192,6 +209,8 @@ async def apply_count_update(
         return await _apply_count_update(entry, op, num, user_name, silent=silent)
 
 
+# 每（群, 机厅）一把锁；量级受群数×机厅数约束（单机部署 <千），泄漏无害，
+# 不做空闲回收——回收竞态复杂度不划算
 _COUNT_LOCKS: dict[tuple[int, int], asyncio.Lock] = {}
 
 
@@ -214,8 +233,12 @@ async def _apply_count_update(
 
     shop_id = await _shop_id_of(entry)
     if shop_id is None:
-        # 无云端店铺关联：仅本地记账（上游无地图网址时的行为）
-        await store.add_count_log(group_id, arcade_id, new_num - current, user_name)
+        # 无云端店铺关联：仅本地记账（上游无地图网址时的行为）；显式设置
+        # 走 reset_count 清流水记绝对值，与有店铺分支同语义
+        if op == OP_SET:
+            await store.reset_count(group_id, arcade_id, new_num, user_name)
+        else:
+            await store.add_count_log(group_id, arcade_id, new_num - current, user_name)
         return f"[{entry.name}] 当前人数更新为 {new_num}\n由 {user_name} 于 {now} 更新"
 
     if op in (OP_INC, OP_DEC):
@@ -384,7 +407,8 @@ async def resolve_region(tokens: list[str]) -> tuple[str, str] | str:
             options = "、".join(str(r.get("label")) for r in items[:8])
             suffix = "…" if len(items) > 8 else ""
             scope = f"「{path[-1]}」下" if path else ""
-            return f"未找到地区「{tok}」：{scope}可用 {options}{suffix}"
+            hint = "；跨省重名可带省名（如 @江苏 @南京）" if path else ""
+            return f"未找到地区「{tok}」：{scope}可用 {options}{suffix}{hint}"
         if len(hits) > 1:
             names = "、".join(str(h.get("label")) for h in hits[:6])
             return f"地区「{tok}」有歧义：{names}？请用更完整的名称"
@@ -392,6 +416,9 @@ async def resolve_region(tokens: list[str]) -> tuple[str, str] | str:
         parent = str(hit["id"])
         path.append(str(hit.get("label") or parent))
     assert parent is not None  # tokens 非空时循环内必然已为 parent 赋值
+    # 展示口径统一：剥掉首段国名（@南京 与 @江苏 @南京 的菜单标题一致）
+    if path and path[0] == "中国":
+        path = path[1:]
     return parent, "/".join(path)
 
 
@@ -450,14 +477,17 @@ def _build_menu(
     """由累计候选构建菜单（合并转发节点 + 同内容降级单条文本）。"""
     total = max(total, len(shops))
     has_more = total > len(shops)
+    # 上游 Atlas Search 路径的 totalCount 是「页满 +1」哨兵而非真实总数
+    # （nearcade /api/shops/+server.ts）：页满形态展示「N+」不谎报精确总数
+    count_text = f"{len(shops)}+" if total == len(shops) + 1 else str(total)
     where = f"（{region_label}）" if region_label else ""
     actions = _menu_actions(query, has_more)
     shops_text = "\n\n".join(
         format_shop_info(shop, i) for i, shop in enumerate(shops, 1)
     )
-    text = f"🔍 找到 {total} 个相关机厅{where}：\n\n{shops_text}\n\n{actions}"
+    text = f"🔍 找到 {count_text} 个相关机厅{where}：\n\n{shops_text}\n\n{actions}"
     nodes = [
-        f"🔍 找到 {total} 个相关机厅{where}",
+        f"🔍 找到 {count_text} 个相关机厅{where}",
         actions,
         *(format_shop_info(shop, i) for i, shop in enumerate(shops, 1)),
     ]
@@ -552,7 +582,9 @@ async def _add_from_shop(group_id: int, shop: dict, fallback: str, user_id: str)
         shop_id=shop_id,
         shop_url=url or None,
     )
-    assert entry is not None  # 上方已查重，同事件循环内无竞态
+    if entry is None:
+        # 两个管理员并发选同一候选：后者查重不过（上方预查重挡不住该窗口）
+        return f"机厅「{name}」已在群聊中"
     reply = f"✅ 已添加机厅：{name}"
     if url:
         await store.add_map(group_id, entry.key, url)
@@ -578,7 +610,8 @@ async def continue_search(
     page: int = payload["page"]
     total: int = payload["total"]
     group_id: int = payload["group_id"]
-    user_id = payload.get("created_by") or user_id
+    # 会话键即 (scope, user_id)，能取到会话的必然是创建者（payload.created_by
+    # 仅留档），无回退必要
 
     if choice == "取消":
         session.pop(scope, user_id)
@@ -630,8 +663,9 @@ async def delete_arcade_reply(group_id: int, text: str) -> str:
     return f"已从群聊名单中删除机厅：{entry.name}"
 
 
-async def resolve_from_list(items: list[str], text: str) -> str | None:
-    """从字符串列表按序号（1 起）或原文解析。"""
+def resolve_from_list(items: list[str], text: str) -> str | None:
+    """从字符串列表按序号（1 起）或原文解析（纯同步，勿再 async 化——那会在
+    resource 删除链路引入本不存在的挂起窗口）。"""
     text = text.strip()
     if text.isdigit():
         idx = int(text) - 1

@@ -89,8 +89,10 @@ async def _(event: MessageEvent, args: Message = CommandArg()):
         if session.clear_manage_group(uid):
             await manage_group_cmd.finish("已清除管理目标")
         await manage_group_cmd.finish("当前没有管理目标")
-    if not text.isdigit():
-        await manage_group_cmd.finish("格式：管理群 <群号>")
+    if not (text.isdigit() and len(text) >= 4):
+        # ≥4 位与 _common._GROUP_PREFIX 的可选前导群号同口径：即设即校验，
+        # 「管理群 1」不再等后续指令才以身份校验失败暴露
+        await manage_group_cmd.finish("格式：管理群 <群号>（群号至少 4 位数字）")
     ttl = plugin_config.awmc_arcade_manage_ttl
     session.set_manage_group(uid, int(text), ttl)
     await manage_group_cmd.finish(

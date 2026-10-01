@@ -19,12 +19,14 @@ async def _count_update_rule(state: T_State, event: MessageEvent) -> bool:
     if parsed is None:
         return False
     name, op, num = parsed
-    if await store.get_group(event.group_id) is None:
+    cfg = await store.get_group(event.group_id)
+    if cfg is None:
         return False
     entry = await service.resolve_arcade(event.group_id, name)
     if entry is None:
         return False
     state["_awmc_arcade_count"] = (entry, op, num)
+    state["_awmc_arcade_silent"] = bool(cfg.silent)  # rule 已查 group，handler 免重查
     return True
 
 
@@ -63,13 +65,12 @@ async def _(
     state: T_State,
 ):
     entry, op, num = state["_awmc_arcade_count"]
-    cfg = await store.get_group(event.group_id)
     reply = await service.apply_count_update(
         entry,
         op,
         num,
         event.sender.nickname or str(event.user_id),
-        silent=bool(cfg and cfg.silent),
+        silent=state["_awmc_arcade_silent"],
     )
     if reply is not None:
         await count_update.finish(reply)

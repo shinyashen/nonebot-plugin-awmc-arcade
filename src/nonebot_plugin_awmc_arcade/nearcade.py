@@ -59,7 +59,8 @@ async def search_shops(
         resp.raise_for_status()
         data = resp.json()
         return {
-            "shops": data.get("shops", []),
+            # 键存在但值为 null 时 get 缺省不生效，or [] 兜底防下游 len(None)
+            "shops": data.get("shops") or [],
             "totalCount": data.get("totalCount", 0),
         }
     except Exception as e:

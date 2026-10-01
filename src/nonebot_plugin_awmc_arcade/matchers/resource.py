@@ -170,10 +170,12 @@ def _build_resource(spec: _ListResource):
         items = await spec.list_items(gid, entry.key)
         if spec.delete_empty and not items:
             await delete.finish(spec.delete_empty.format(entry=entry.name))
-        value = await service.resolve_from_list(items, ref)
+        value = service.resolve_from_list(items, ref)
         if value is None:
             await delete.finish(spec.delete_missing.format(ref=ref))
-        await spec.remove_item(gid, entry.key, value)
+        if not await spec.remove_item(gid, entry.key, value):
+            # 并发删除窗口：列表取值与落库删除间资源可能已被删掉，不假报成功
+            await delete.finish(spec.delete_missing.format(ref=ref))
         await delete.finish(spec.delete_success.format(entry=entry.name, value=value))
 
     @query.handle()
