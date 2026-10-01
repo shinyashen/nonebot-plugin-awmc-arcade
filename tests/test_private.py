@@ -86,6 +86,13 @@ async def test_manage_group_context(app: App):
     await _run(
         app, manage_group_cmd, _private_event("管理群"), "当前管理目标：123456 群"
     )
+    # 群号即设即校验（≥4 位，与 _GROUP_PREFIX 前导群号同口径，复审补）
+    await _run(
+        app,
+        manage_group_cmd,
+        _private_event("管理群 1"),
+        "格式：管理群 <群号>（群号至少 4 位数字）",
+    )
     await _run(app, manage_group_cmd, _private_event("管理群 取消"), "已清除管理目标")
     assert session.get_manage_group("10") is None
 

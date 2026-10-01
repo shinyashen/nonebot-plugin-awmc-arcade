@@ -679,6 +679,33 @@ async def test_region_filtered_search():
 
 
 @respx.mock
+async def test_region_tree_failure_not_misread_as_missing():
+    """地区树瞬时失败给「查询失败」专项文案，不误判「未找到」（复审补）：
+    根层失败、子层失败、省级并发扫描全省失败三条路径。"""
+    from nonebot_plugin_awmc_arcade import service, session
+    from nonebot_plugin_awmc_arcade.store import store
+
+    await store.add_group(876)
+
+    # 根层失败
+    respx.get(f"{BASE}/api/regions").respond(500)
+    reply = await service.begin_add_arcade(876, 876, "u1", "天空之城 @南京")
+    assert reply == "地区查询失败，请稍后再试"
+    assert session.get(876, "u1") is None
+
+    # 根层成功、中国子级失败（@中国 显式两级）
+    def _regions(request):
+        parent = request.url.params.get("parentId") or ""
+        if parent == "CN":
+            return Response(500)
+        return Response(200, json=REGIONS.get(parent, []))
+
+    respx.get(f"{BASE}/api/regions").mock(side_effect=_regions)
+    reply = await service.begin_add_arcade(876, 876, "u2", "天空之城 @中国 @南京")
+    assert reply == "地区查询失败，请稍后再试"
+
+
+@respx.mock
 async def test_region_only_search_and_cap():
     """仅 @地区 检索：空关键词 + regionId；超上限不起会话并提示缩小。"""
     from nonebot_plugin_awmc_arcade import service, session

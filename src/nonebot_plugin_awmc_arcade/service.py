@@ -161,6 +161,10 @@ async def _shop_games(shop_id: str) -> list[dict]:
     if cached is not None and time.monotonic() - cached[0] < _SHOP_GAMES_TTL:
         return cached[1]
     info = await nearcade.get_shop(shop_id)
+    if info is None:
+        # 瞬时失败不缓存（负缓存会压住云上传重试至多 5 分钟，与人数同步
+        # 要实时相悖）；空 games 是合法响应（真无机种），照常缓存
+        return []
     games = (info or {}).get("shop", {}).get("games", [])
     _shop_games_cache[shop_id] = (time.monotonic(), games)
     return games
@@ -181,7 +185,12 @@ def maimai_game_of(games: list[dict], *, fallback: int = 1) -> tuple[int, int | 
     """
     for game in games:
         if game.get("titleId") == MAIMAI_DX_TITLE_ID or game.get("name") == "maimai DX":
-            return max(int(game.get("quantity", 1) or 1), 1), game.get("gameId")
+            quantity = int(game.get("quantity", 1) or 0)
+            if quantity <= 0:
+                # 上游 schema 允许 quantity=0（下架未删条目）：不把上传挂 0 台
+                # 机种的出勤计数，继续找下一个 maimai 条目
+                continue
+            return quantity, game.get("gameId")
     return fallback, None
 
 
@@ -403,8 +412,10 @@ async def resolve_region(tokens: list[str]) -> tuple[str, str] | str:
             children_lists = await asyncio.gather(
                 *(_children(str(prov["id"])) for prov in items)
             )
+            failed = 0
             for prov, children in zip(items, children_lists):
                 if children is None:  # 单省瞬时失败跳过，不误判「不存在」
+                    failed += 1
                     continue
                 sub = _region_hits(children, tok)
                 if sub:
@@ -412,11 +423,16 @@ async def resolve_region(tokens: list[str]) -> tuple[str, str] | str:
                     parent = str(prov["id"])
                     path = [str(prov.get("label") or parent)]
                     break
+            if not hits and failed and failed == len(children_lists):
+                # 全省都失败：不是「不存在」，是查询失败
+                return "地区查询失败，请稍后再试"
         if not hits:
             options = "、".join(str(r.get("label")) for r in items[:8])
             suffix = "…" if len(items) > 8 else ""
             scope = f"「{path[-1]}」下" if path else ""
-            hint = "；跨省重名可带省名（如 @江苏 @南京）" if path else ""
+            hint = (
+                "；跨省重名可带省名（如 @江苏 @南京）" if path in ([], ["中国"]) else ""
+            )
             return f"未找到地区「{tok}」：{scope}可用 {options}{suffix}{hint}"
         if len(hits) > 1:
             names = "、".join(str(h.get("label")) for h in hits[:6])
@@ -547,7 +563,7 @@ async def begin_add_arcade(
         name, limit=SEARCH_PAGE_LIMIT, region_id=region_id
     )
     shops = result.get("shops", [])
-    total = max(int(result.get("totalCount", 0)), len(shops))
+    total = max(int(result.get("totalCount", 0) or 0), len(shops))
     if not name:
         # 地区全量检索：超上限提示缩小地区；无结果不落空名机厅
         if total > plugin_config.awmc_arcade_search_max_total:
@@ -644,8 +660,11 @@ async def continue_search(
             return "没有更多结果了"
         shops.extend(new_shops)  # 追加：既有序号保持稳定
         payload["page"] = page + 1
-        # totalCount 强转：上游偶发返回字符串，下轮比较会 TypeError
-        payload["total"] = int(result.get("totalCount", total) or 0)
+        # totalCount 按页推导：上游 Atlas 路径的 totalCount 是「本页页满 +1」
+        # 哨兵（非累计真实数，+server.ts），照抄会在翻页后变成假精确总数且
+        # has_more 停摆（第 3 页不可达）；强转 or 0 兼容上游偶发字符串/null
+        page_total = len(new_shops) + (1 if len(new_shops) == SEARCH_PAGE_LIMIT else 0)
+        payload["total"] = (page) * SEARCH_PAGE_LIMIT + page_total
         return _build_menu(
             query,
             payload["total"],
@@ -673,8 +692,7 @@ async def delete_arcade_reply(group_id: int, text: str) -> str:
 
 
 def resolve_from_list(items: list[str], text: str) -> str | None:
-    """从字符串列表按序号（1 起）或原文解析（纯同步，勿再 async 化——那会在
-    resource 删除链路引入本不存在的挂起窗口）。"""
+    """从字符串列表按序号（1 起）或原文解析（纯函数，无需 async）。"""
     text = text.strip()
     if text.isdigit():
         idx = int(text) - 1
