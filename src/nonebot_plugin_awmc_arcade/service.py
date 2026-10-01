@@ -328,8 +328,9 @@ REGION_CACHE_TTL = 7 * 86400.0  # 地区树几乎不变，子级缓存 7 天
 _AT_REGION = re.compile(r"@(\S+)")
 
 
-async def _region_children(parent: str | None) -> list[dict]:
-    """地区树子级（meta 缓存 7 天，省/市级条目几十条）。"""
+async def _region_children(parent: str | None) -> "list[dict] | None":
+    """地区树子级（meta 缓存 7 天，省/市级条目几十条）；请求失败返回 None
+    （缓存命中与空子级仍是列表，三种形态调用方可区分）。"""
     key = f"region:children:{parent or '_root'}"
     now = time.time()
     raw = await store.get_meta(key)
@@ -341,6 +342,8 @@ async def _region_children(parent: str | None) -> list[dict]:
         except Exception:
             pass
     items = await nearcade.region_children(parent)
+    if items is None:
+        return None
     if items:
         try:
             await store.set_meta(
@@ -372,6 +375,8 @@ async def resolve_region(tokens: list[str]) -> tuple[str, str] | str:
     path: list[str] = []
     for i, tok in enumerate(tokens):
         items = await _region_children(parent)
+        if items is None:
+            return "地区查询失败，请稍后再试"
         hits = _region_hits(items, tok)
         if not hits and parent is None and i == 0:
             cn = next(
@@ -382,6 +387,8 @@ async def resolve_region(tokens: list[str]) -> tuple[str, str] | str:
                 parent = str(cn["id"])
                 path.append(str(cn.get("label") or parent))
                 items = await _region_children(parent)
+                if items is None:
+                    return "地区查询失败，请稍后再试"
                 hits = _region_hits(items, tok)
         if not hits and parent is not None and i == 0 and len(path) == 1:
             # 省级仍无命中：并发扫各省子级（市级直达，如「@南京」）——
@@ -397,6 +404,8 @@ async def resolve_region(tokens: list[str]) -> tuple[str, str] | str:
                 *(_children(str(prov["id"])) for prov in items)
             )
             for prov, children in zip(items, children_lists):
+                if children is None:  # 单省瞬时失败跳过，不误判「不存在」
+                    continue
                 sub = _region_hits(children, tok)
                 if sub:
                     hits = sub

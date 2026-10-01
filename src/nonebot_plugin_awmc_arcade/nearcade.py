@@ -126,8 +126,12 @@ async def upload_attendance(
         return -1, str(e)
 
 
-async def region_children(parent_id: str | None = None) -> list[dict]:
-    """地区树子级（locale=zh 中文名；parent_id 缺省为顶层国家列表）。"""
+async def region_children(parent_id: str | None = None) -> "list[dict] | None":
+    """地区树子级（locale=zh 中文名；parent_id 缺省为顶层国家列表）。
+
+    请求失败返回 None（与「合法的空子级」区分——瞬时失败被当成
+    「该地区不存在」会给出误导性文案，调用方按失败另给提示）。
+    """
     try:
         resp = await _http().get(
             f"{BASE}/api/regions",
@@ -137,7 +141,7 @@ async def region_children(parent_id: str | None = None) -> list[dict]:
         return resp.json()
     except Exception as e:
         logger.warning(f"Nearcade 地区树获取失败（{parent_id}）：{e}")
-        return []
+        return None
 
 
 async def resolve_redirect(url: str) -> str | None:
