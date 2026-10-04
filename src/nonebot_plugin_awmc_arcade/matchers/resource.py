@@ -191,6 +191,8 @@ def _build_resource(spec: _ListResource):
             str(args).strip(),
             open_required=True,
             group_admin_required=False,
+            # group_admin_required=False：deny 不会被消费，空串占位
+            deny="",
             private_admin_required=True,
         )
         if isinstance(ctx, str):

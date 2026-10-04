@@ -40,7 +40,11 @@ __plugin_meta__ = PluginMetadata(
         "awmc-helper 生态第三方插件：舞萌DX 机厅人数上报、附近机厅查找、"
         "线上排卡、Nearcade 云同步（替代内置 awmc.arcade）"
     ),
-    usage="发送 机厅help 查看完整指令说明；启用本插件请停用主插件内置 awmc.arcade",
+    usage=(
+        "发送 机厅help 查看完整指令说明；启用本插件请停用主插件内置 awmc.arcade。"
+        "默认 Nearcade 令牌为上游公开的开发令牌（开箱可用），正式部署应配置"
+        "自己的 awmc_arcade_nearcade_api_token"
+    ),
     type="application",
     homepage="https://github.com/shinyashen/nonebot-plugin-awmc-arcade",
     config=Config,

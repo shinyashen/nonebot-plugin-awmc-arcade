@@ -83,12 +83,14 @@ async def _(
 @show_arcade.handle()
 @handle_errors()
 async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
+    # group_admin_required=False：deny 不会被消费，空串占位
     ctx = await _target_group(
         bot,
         event,
         str(args).strip(),
         open_required=True,
         group_admin_required=False,
+        deny="",
         private_admin_required=True,
     )
     if isinstance(ctx, str):

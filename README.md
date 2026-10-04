@@ -25,7 +25,7 @@
 - NoneBot2 ≥ 2.4.3，Python ≥ 3.10
 - [nonebot-plugin-awmc-helper](https://github.com/shinyashen/nonebot-plugin-awmc-helper)（主插件，复用其 HTTP 智能代理、异常兜底与合并转发能力）
 - OneBot v11 适配器（位置监听与群管权限依赖 v11 协议）
-- 一个 [Nearcade](https://nearcade.cn) 开发者 API 令牌（用于人数上传；不配置则使用上游公开的开发令牌，仅保证可用，建议替换）
+- 一个 [Nearcade](https://nearcade.cn) 开发者 API 令牌（用于人数上传；不配置则使用上游公开的开发令牌，开箱可用但仅作演示——**正式部署应申请自己的令牌**并配置 `awmc_arcade_nearcade_api_token` 替换，配置格式不符（有效令牌为 `nk_` + 42 位，共 45 字符）时启动仅告警不阻断）
 
 ## 安装
 
@@ -56,7 +56,7 @@ pip install nonebot-plugin-awmc-arcade
 
 | 配置项 | 默认 | 说明 |
 |---|---|---|
-| `awmc_arcade_nearcade_api_token` | 上游公开开发令牌 | Nearcade 开发者 API 令牌（人数上传） |
+| `awmc_arcade_nearcade_api_token` | 上游公开开发令牌 | Nearcade 开发者 API 令牌（人数上传；默认令牌为 Nearcade 公开开发令牌，正式部署应配置自己的令牌） |
 | `awmc_arcade_smart_tips` | 5 档默认提示 | 等待时间提示规则（`max_minutes` 升序，`tip` 文案） |
 | （复用主插件）`awmc_arcade_max_delta` | `30` | 单次人数变更上限（±，超过拒绝）；与内置排卡同名字段，单一来源 |
 | `awmc_arcade_manage_ttl` | `1800` | 私聊「管理群」上下文的存活秒数 |

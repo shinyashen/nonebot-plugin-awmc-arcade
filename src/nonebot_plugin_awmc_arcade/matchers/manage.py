@@ -10,7 +10,7 @@ from nonebot_plugin_awmc_helper.core.utils import handle_errors
 from .. import session
 from ..store import store
 from ..config import plugin_config
-from ._common import _NOT_OPEN, _target_group
+from ._common import _NOT_OPEN, GROUP_ID_MIN_LEN, _target_group
 
 add_group = on_command("添加群聊", priority=10, block=True)
 delete_group = on_command("删除群聊", priority=10, block=True)
@@ -89,9 +89,9 @@ async def _(event: MessageEvent, args: Message = CommandArg()):
         if session.clear_manage_group(uid):
             await manage_group_cmd.finish("已清除管理目标")
         await manage_group_cmd.finish("当前没有管理目标")
-    if not (text.isdigit() and len(text) >= 4):
-        # ≥4 位与 _common._GROUP_PREFIX 的可选前导群号同口径：即设即校验，
-        # 「管理群 1」不再等后续指令才以身份校验失败暴露
+    if not (text.isdigit() and len(text) >= GROUP_ID_MIN_LEN):
+        # 最小位数与 _common._GROUP_PREFIX 的可选前导群号同口径（常量单源）：
+        # 即设即校验，「管理群 1」不再等后续指令才以身份校验失败暴露
         await manage_group_cmd.finish("格式：管理群 <群号>（群号至少 4 位数字）")
     ttl = plugin_config.awmc_arcade_manage_ttl
     session.set_manage_group(uid, int(text), ttl)
@@ -104,12 +104,14 @@ async def _(event: MessageEvent, args: Message = CommandArg()):
 @handle_errors()
 async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
     # matcher 已有 SUPERUSER 门禁：目标群解析无需再验身份
+    # （group_admin_required=False：deny 不会被消费，空串占位）
     ctx = await _target_group(
         bot,
         event,
         str(args).strip(),
         open_required=True,
         group_admin_required=False,
+        deny="",
         private_admin_required=False,
     )
     if isinstance(ctx, str):
@@ -126,12 +128,14 @@ async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
 @silent_off.handle()
 @handle_errors()
 async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
+    # group_admin_required=False：deny 不会被消费，空串占位
     ctx = await _target_group(
         bot,
         event,
         str(args).strip(),
         open_required=True,
         group_admin_required=False,
+        deny="",
         private_admin_required=False,
     )
     if isinstance(ctx, str):

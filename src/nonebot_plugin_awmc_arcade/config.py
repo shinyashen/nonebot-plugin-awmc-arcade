@@ -5,7 +5,8 @@
 """
 
 from nonebot import get_plugin_config
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
+from nonebot.log import logger
 
 __all__ = ["Config", "SmartTipRule", "plugin_config"]
 
@@ -23,7 +24,8 @@ class SmartTipRule(BaseModel):
 
 class Config(BaseModel):
     # Nearcade 开发者 API 令牌（人数上传用）。默认值为上游项目公开的
-    # 开发令牌，仅保证开箱可用；正式部署建议申请自己的令牌替换。
+    # 开发令牌，仅保证开箱可用；正式部署应配置自己的令牌
+    # （awmc_arcade_nearcade_api_token）替换。
     awmc_arcade_nearcade_api_token: str = (
         "nk_eimMHQaX7F6g0LlLg6ihhweRQTyLxUTVKHuIdijadC"
     )
@@ -48,6 +50,19 @@ class Config(BaseModel):
     awmc_arcade_search_max_total: int = 50
     # 私聊「管理群 <群号>」上下文的 TTL（秒）
     awmc_arcade_manage_ttl: int = 1800
+
+    @model_validator(mode="after")
+    def _warn_token_format(self) -> "Config":
+        """Nearcade 开发令牌格式守卫：有效令牌恒为 ``nk_`` + 42 位（共 45
+        字符）。不符仅告警不硬拒——防上游改格式导致合法令牌加载失败。"""
+        token = self.awmc_arcade_nearcade_api_token
+        if token and not (token.startswith("nk_") and len(token) == 45):
+            logger.warning(
+                "awmc_arcade_nearcade_api_token 不符合 Nearcade 开发令牌的常规"
+                f"格式（nk_ + 42 位，共 45 字符，当前长度 {len(token)}），"
+                "请核对是否配置有误"
+            )
+        return self
 
 
 plugin_config: Config = get_plugin_config(Config)

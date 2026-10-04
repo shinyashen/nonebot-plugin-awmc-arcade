@@ -20,6 +20,7 @@ from nonebot import logger
 from nonebot_plugin_awmc_helper.core.http import create_smart_client
 
 BASE = "https://nearcade.cn"
+_TIMEOUT = 15.0  # Nearcade 请求超时（秒）
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; NoneBot-Arcade-Plugin)",
     "Accept": "application/json",
@@ -31,7 +32,7 @@ def _http() -> httpx.AsyncClient:
     global _client
     if _client is None:
         # 智能代理层统一工厂：国内站直连优先、连接失败代理回退
-        _client = create_smart_client(timeout=15, headers=_HEADERS)
+        _client = create_smart_client(timeout=_TIMEOUT, headers=_HEADERS)
     return _client
 
 

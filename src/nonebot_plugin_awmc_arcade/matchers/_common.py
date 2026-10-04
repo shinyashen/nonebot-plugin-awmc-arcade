@@ -22,11 +22,15 @@ _NO_TARGET = "请先用 管理群 <群号> 设置管理目标，或在指令开�
 
 _ADMIN_CACHE_TTL = 300.0  # 管理员角色缓存秒数
 _ADMIN_CACHE_MAX = 512  # 缓存键上界（超过触发惰性清扫）
+# _admin_cache 为手写 TTL 缓存：同族还有 service._shop_games_cache 与
+# service 地区树缓存（REGION_CACHE_TTL + store meta KV），调参时互相核对
 _admin_cache: dict[tuple[int, str], tuple[bool, float]] = {}
 _DENY_MANAGE = "权限不足：你不是该群的管理员"
 
-# 私聊指令的可选前导群号：≥4 位与机厅序号参数（1-2 位）天然区分
-_GROUP_PREFIX = re.compile(r"^(\d{4,})(?:\s+(.*))?$", re.DOTALL)
+# 私聊指令的可选前导群号：≥GROUP_ID_MIN_LEN 位与机厅序号参数（1-2 位）
+# 天然区分；最小位数单源（manage「管理群」即设即校验同口径引用本常量）
+GROUP_ID_MIN_LEN = 4
+_GROUP_PREFIX = re.compile(rf"^(\d{{{GROUP_ID_MIN_LEN},}})(?:\s+(.*))?$", re.DOTALL)
 
 
 async def _is_admin(bot: Bot, event: GroupMessageEvent) -> bool:
@@ -88,14 +92,16 @@ async def _target_group(
     *,
     open_required: bool,
     group_admin_required: bool,
-    deny: str = "只有管理员能够操作",
+    deny: str,
     private_admin_required: bool = True,
 ) -> tuple[int, str, int] | str:
     """群管理类指令的目标群统一解析与门禁。
 
     返回 (目标群号, 参数文本, 会话 scope)；校验失败返回错误文案。
     - 群聊：目标=当前群、原文即参数；按需校验开通态与群身份
-      （先开通后权限，与上游次序一致）；
+      （先开通后权限，与上游次序一致）；``deny`` 必填——群管拒绝文案
+      逐指令定制，不设默认值防新调用点漏配（group_admin_required=False
+      时不消费，传空串占位）；
     - 私聊：前导群号 > 管理群 上下文；身份校验 SUPERUSER 直通，否则
       经 get_group_member_info 直查目标群角色。
     """

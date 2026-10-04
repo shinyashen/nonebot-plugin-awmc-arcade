@@ -27,6 +27,8 @@ OP_INC = "inc"
 OP_DEC = "dec"
 OP_SET = "set"
 
+_ERR_INVALID_NUM = "检测到非法数值，拒绝更新"
+
 
 async def resolve_arcade(
     group_id: int, text: str, *, by_alias: bool = True
@@ -85,13 +87,13 @@ async def compute_count(
         # 显式 +0/-0 是「无变化」的合法路径，不得因 falsy 判定当作 +1
         delta = 1 if num is None else num
         if abs(delta) > max_delta:
-            return "检测到非法数值，拒绝更新"
+            return _ERR_INVALID_NUM
         new_num = current + (delta if op == OP_INC else -delta)
         if not 0 <= new_num <= cfg.awmc_arcade_max_count:
-            return "检测到非法数值，拒绝更新"
+            return _ERR_INVALID_NUM
         return current, new_num, new_num - current
     if num is None or not 0 <= num <= cfg.awmc_arcade_max_count:
-        return "检测到非法数值，拒绝更新"
+        return _ERR_INVALID_NUM
     return current, num, num - current
 
 
@@ -120,8 +122,11 @@ def shop_id_from_url(url: str) -> str | None:
 
 
 def _tip_for(wait_minutes: int) -> str:
-    # env 配置不保证有序，「首条命中」口径按 max_minutes 升序后取
+    # env 配置不保证有序，「首条命中」口径按 max_minutes 升序后取；
+    # 空列表（用户配置清空）兜底空串，不因 tips[-1] 崩
     tips = sorted(plugin_config.awmc_arcade_smart_tips, key=lambda r: r.max_minutes)
+    if not tips:
+        return ""
     return next((r.tip for r in tips if wait_minutes <= r.max_minutes), tips[-1].tip)
 
 
@@ -151,7 +156,10 @@ def estimate_msg(name: str, count: int, coutnum: int, *, updated: bool) -> str:
 
 _SHOP_GAMES_TTL = 300.0
 """店铺机种列表进程内缓存秒数（机台数/gameId 变化极低频，砍查询/上报各
-一次详情请求；出勤人数**不**在此列——人数同步要求实时）。"""
+一次详情请求；出勤人数**不**在此列——人数同步要求实时）。
+
+同族手写 TTL 缓存：matchers._common._admin_cache、地区树缓存
+（REGION_CACHE_TTL + store meta KV），调参时互相核对。"""
 _shop_games_cache: dict[str, tuple[float, list[dict]]] = {}
 
 
@@ -165,7 +173,9 @@ async def _shop_games(shop_id: str) -> list[dict]:
         # 瞬时失败不缓存（负缓存会压住云上传重试至多 5 分钟，与人数同步
         # 要实时相悖）；空 games 是合法响应（真无机种），照常缓存
         return []
-    games = (info or {}).get("shop", {}).get("games", [])
+    # shop 键存在但可为 null（上游 schema 允许），or {} 防 AttributeError；
+    # games 同理 or []（len(None) 防御，与 nearcade.search_shops 兜底口径一致）
+    games = (info.get("shop") or {}).get("games") or []
     _shop_games_cache[shop_id] = (time.monotonic(), games)
     return games
 
@@ -194,10 +204,21 @@ def maimai_game_of(games: list[dict], *, fallback: int = 1) -> tuple[int, int | 
     return fallback, None
 
 
-async def _maimai_coutnum(entry: ArcadeEntry, shop_id: str) -> int:
-    """从云端店铺详情刷新 maimai DX 机台数（无该机种沿用条目缓存）。"""
-    coutnum, _ = maimai_game_of(await _shop_games(shop_id), fallback=entry.coutnum)
-    return coutnum
+async def _sync_coutnum(entry: ArcadeEntry, shop_id: str) -> tuple[int, int | None]:
+    """扫描云端店铺详情取 maimai DX，机台数与条目缓存不一致时回写——
+    人数上报展示与查询对齐两条链路共用的唯一入口。
+
+    返回 (机台数, 上传 gameId)：无 maimai DX 机种时 gameId 为 None
+    （调用方走「未获取上传通道」分支），机台数沿用条目缓存
+    ``fallback``。机台数与 gameId 同源自一次店铺详情请求（TTL 缓存），
+    扫描口径单源 :func:`maimai_game_of`，不得兜底取 games[0]。
+    """
+    coutnum, game_id = maimai_game_of(
+        await _shop_games(shop_id), fallback=entry.coutnum
+    )
+    if coutnum != entry.coutnum:
+        await store.update_nearcade_info(entry.key, coutnum=coutnum)
+    return coutnum, game_id
 
 
 async def apply_count_update(
@@ -260,14 +281,10 @@ async def _apply_count_update(
     else:
         await store.add_count_log(group_id, arcade_id, new_num - current, user_name)
 
-    # 机台数与上传 gameId 同源自一次店铺详情请求，扫描口径单源
-    # maimai_game_of（无 maimai DX 机种时 game_id 为 None，走下方
-    # 「未获取上传通道」分支，不得兜底取 games[0]）
-    coutnum, game_id = maimai_game_of(
-        await _shop_games(shop_id), fallback=entry.coutnum
-    )
-    if coutnum != entry.coutnum:
-        await store.update_nearcade_info(arcade_id, coutnum=coutnum)
+    # 机台数与上传 gameId 同源自一次店铺详情请求（扫描/比对/回写收敛于
+    # _sync_coutnum）；无 maimai DX 机种时 game_id 为 None，走下方
+    # 「未获取上传通道」分支，不得兜底取 games[0]
+    coutnum, game_id = await _sync_coutnum(entry, shop_id)
     msg = estimate_msg(entry.name, new_num, coutnum, updated=True)
 
     if game_id is None:
@@ -300,12 +317,12 @@ async def count_query_reply(entry: ArcadeEntry) -> str:
                 await store.reset_count(group_id, arcade_id, cloud, "Nearcade")
     count = await store.current_count(group_id, arcade_id)
     if count <= 0:
+        # 上游原文照抄（YuuzukiRin/nonebot_plugin_mai_arcade handlers/count.py，
+        # 「你可以爽霸机了」与另两处「您可以爽霸…」本就不同文案，勿擅自统一）
         return f"[{entry.name}] 今日人数尚未更新\n你可以爽霸机了\n快去出勤吧！"
     coutnum = entry.coutnum
     if shop_id:
-        coutnum = await _maimai_coutnum(entry, shop_id)
-        if coutnum != entry.coutnum:
-            await store.update_nearcade_info(arcade_id, coutnum=coutnum)
+        coutnum, _ = await _sync_coutnum(entry, shop_id)
     msg = estimate_msg(entry.name, count, coutnum, updated=False)
     if last := await store.last_count_update(group_id, arcade_id):
         by = last.updated_by or "未知"
@@ -326,6 +343,8 @@ async def updated_today_reply(group_id: int) -> str:
             f"[{entry.name}] {count}人 \n（{by} · {last.updated_at.strftime('%H:%M')}）"
         )
     if not lines:
+        # 上游原文照抄（YuuzukiRin/nonebot_plugin_mai_arcade handlers/arcade.py，
+        # 「您可以爽霸机了」与其余两处爽霸文案本就不同，勿擅自统一）
         return "📋 今日机厅人数更新情况\n\n暂无更新记录\n您可以爽霸机了"
     return "📋 今日机厅人数更新情况\n\n" + "\n".join(lines)
 
@@ -333,6 +352,8 @@ async def updated_today_reply(group_id: int) -> str:
 # ---- 添加机厅（Nearcade 搜索交互） ----
 
 # 地区词解析：@江苏 @南京 逐级下钻；首词若不是国家则默认在中国境内查找
+# REGION_CACHE_TTL 为地区树手写 TTL 缓存（存 store meta KV）：同族还有
+# _shop_games_cache 与 matchers._common._admin_cache，调参时互相核对
 REGION_CACHE_TTL = 7 * 86400.0  # 地区树几乎不变，子级缓存 7 天
 _AT_REGION = re.compile(r"@(\S+)")
 
@@ -374,6 +395,41 @@ def _region_hits(items: list[dict], token: str) -> list[dict]:
     return [r for r in items if token in str(r.get("label", ""))]
 
 
+async def _scan_provinces_for(
+    items: list[dict], tok: str
+) -> "tuple[list[dict], str, list[str]] | str | None":
+    """省级并发扫描：在 ``items``（省级列表）各子级里找 ``tok``（市级直达，
+    如「@南京」）。
+
+    命中返回 (hits, 省级 parent id, 从省名重建的 path)；全省都请求失败
+    返回失败文案（不是「不存在」）；不命中返回 None（调用方维持原
+    parent/path 走「未找到」提示）。冷缓存串行拉 30+ 省要数秒，gather
+    压到单省量级；信号量限 8 防一次打爆 nearcade。
+    """
+    sem = asyncio.Semaphore(8)
+
+    async def _children(pid: str) -> list[dict]:
+        async with sem:
+            return await _region_children(pid)
+
+    children_lists = await asyncio.gather(
+        *(_children(str(prov["id"])) for prov in items)
+    )
+    failed = 0
+    for prov, children in zip(items, children_lists):
+        if children is None:  # 单省瞬时失败跳过，不误判「不存在」
+            failed += 1
+            continue
+        sub = _region_hits(children, tok)
+        if sub:
+            parent = str(prov["id"])
+            return sub, parent, [str(prov.get("label") or parent)]
+    if failed and failed == len(children_lists):
+        # 全省都失败：不是「不存在」，是查询失败
+        return "地区查询失败，请稍后再试"
+    return None
+
+
 async def resolve_region(tokens: list[str]) -> tuple[str, str] | str:
     """逐级解析 @地区词链，返回 (regionId, 展示路径)；失败返回错误文案。
 
@@ -400,32 +456,12 @@ async def resolve_region(tokens: list[str]) -> tuple[str, str] | str:
                     return "地区查询失败，请稍后再试"
                 hits = _region_hits(items, tok)
         if not hits and parent is not None and i == 0 and len(path) == 1:
-            # 省级仍无命中：并发扫各省子级（市级直达，如「@南京」）——
-            # 冷缓存串行拉 30+ 省要数秒，gather 压到单省量级；信号量限 8
-            # 防一次打爆 nearcade
-            sem = asyncio.Semaphore(8)
-
-            async def _children(pid: str) -> list[dict]:
-                async with sem:
-                    return await _region_children(pid)
-
-            children_lists = await asyncio.gather(
-                *(_children(str(prov["id"])) for prov in items)
-            )
-            failed = 0
-            for prov, children in zip(items, children_lists):
-                if children is None:  # 单省瞬时失败跳过，不误判「不存在」
-                    failed += 1
-                    continue
-                sub = _region_hits(children, tok)
-                if sub:
-                    hits = sub
-                    parent = str(prov["id"])
-                    path = [str(prov.get("label") or parent)]
-                    break
-            if not hits and failed and failed == len(children_lists):
-                # 全省都失败：不是「不存在」，是查询失败
-                return "地区查询失败，请稍后再试"
+            # 省级仍无命中：并发扫各省子级（拆分见 _scan_provinces_for）
+            scanned = await _scan_provinces_for(items, tok)
+            if isinstance(scanned, str):
+                return scanned
+            if scanned is not None:
+                hits, parent, path = scanned
         if not hits:
             options = "、".join(str(r.get("label")) for r in items[:8])
             suffix = "…" if len(items) > 8 else ""
@@ -440,7 +476,10 @@ async def resolve_region(tokens: list[str]) -> tuple[str, str] | str:
         hit = hits[0]
         parent = str(hit["id"])
         path.append(str(hit.get("label") or parent))
-    assert parent is not None  # tokens 非空时循环内必然已为 parent 赋值
+    # 显式守卫替代 assert（-O 下被剥掉）：tokens 非空时循环内必然已为
+    # parent 赋值，此处不可达
+    if parent is None:
+        raise RuntimeError("地区解析未落到任何地区节点")
     # 展示口径统一：剥掉首段国名（@南京 与 @江苏 @南京 的菜单标题一致）
     if path and path[0] == "中国":
         path = path[1:]
@@ -567,7 +606,10 @@ async def begin_add_arcade(
     if not name:
         # 地区全量检索：超上限提示缩小地区；无结果不落空名机厅
         if total > plugin_config.awmc_arcade_search_max_total:
-            assert region_id is not None  # 空名称走到这里必然带过 @地区词
+            # 显式守卫替代 assert（-O 下被剥掉）：空名称能走到这里必然
+            # 解析过 @地区词（入口已挡「无店名且无地区词」），不可达防御
+            if region_id is None:
+                raise RuntimeError("地区全量检索缺少 region_id")
             return await _region_overflow(total, region_label, region_id)
         if not shops:
             return f"Nearcade 未收录{region_label}的机厅"

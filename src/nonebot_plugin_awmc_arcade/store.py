@@ -65,11 +65,25 @@ async def set_db_file(path: Path | None) -> None:
 
 
 def get_engine() -> AsyncEngine:
-    """懒创建的异步引擎（与 awmc 生态其余插件同款模式）。"""
+    """懒创建的异步引擎（与 awmc 生态其余插件同款模式）。
+
+    ⚠️ 本段引擎管理样板（重定向/dispose/懒创建/create_all 幂等建表）与
+    awmc 生态同款模式（主仓 core/store.py、传分仓 store.py 三处同构）：
+    改 Initialization 语义须三仓同步，勿单仓独走。
+    """
     global _engine
     if _engine is None:
         _engine = create_async_engine(f"sqlite+aiosqlite:///{db_file()}")
     return _engine
+
+
+def make_session() -> AsyncSession:
+    """新建数据会话（``expire_on_commit=False``：commit 后对象属性保持
+    可读，返回给调用方的行无需 refresh 补偿即可取列值）。
+
+    不叫 ``session``：各方法 ``async with … as session`` 的上下文变量名
+    与函数内赋值同名会遮蔽模块级函数（UnboundLocalError），故取本名。"""
+    return AsyncSession(get_engine(), expire_on_commit=False)
 
 
 async def init_store() -> None:
@@ -193,7 +207,7 @@ class ArcadeStore:
 
     @staticmethod
     async def get_group(group_id: int) -> GroupCfg | None:
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             return (
                 await session.exec(
                     select(GroupCfg).where(GroupCfg.group_id == group_id)
@@ -203,7 +217,7 @@ class ArcadeStore:
     @staticmethod
     async def add_group(group_id: int) -> bool:
         """开通群，返回是否新增（已开通返回 False）。"""
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             if (
                 await session.exec(
                     select(GroupCfg).where(GroupCfg.group_id == group_id)
@@ -217,7 +231,7 @@ class ArcadeStore:
     @staticmethod
     async def remove_group(group_id: int) -> bool:
         """关闭群并级联清掉该群全部机厅数据。"""
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             if not (
                 await session.exec(
                     select(GroupCfg).where(GroupCfg.group_id == group_id)
@@ -249,7 +263,7 @@ class ArcadeStore:
     @staticmethod
     async def set_silent(group_id: int, silent: bool) -> bool:
         """设置静默模式，返回群是否存在。"""
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             cfg = (
                 await session.exec(
                     select(GroupCfg).where(GroupCfg.group_id == group_id)
@@ -266,7 +280,7 @@ class ArcadeStore:
     @staticmethod
     async def list_arcades(group_id: int) -> list[ArcadeEntry]:
         """群内机厅列表（按添加顺序，序号操作以此序为准）。"""
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             return list(
                 await session.exec(
                     select(ArcadeEntry)
@@ -276,22 +290,8 @@ class ArcadeStore:
             )
 
     @staticmethod
-    async def get_arcade(group_id: int, arcade_id: int) -> ArcadeEntry | None:
-        """按 id 查机厅（非指令链路 API：指令层走 by_name/列表；测试验证
-        「临时店不落库」语义用）。"""
-        async with AsyncSession(get_engine()) as session:
-            return (
-                await session.exec(
-                    select(ArcadeEntry).where(
-                        ArcadeEntry.group_id == group_id,
-                        ArcadeEntry.id == arcade_id,
-                    )
-                )
-            ).first()
-
-    @staticmethod
     async def get_arcade_by_name(group_id: int, name: str) -> ArcadeEntry | None:
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             return (
                 await session.exec(
                     select(ArcadeEntry).where(
@@ -302,7 +302,7 @@ class ArcadeStore:
 
     @staticmethod
     async def find_arcade_by_alias(group_id: int, alias: str) -> ArcadeEntry | None:
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             row = (
                 await session.exec(
                     select(AliasEntry).where(
@@ -330,7 +330,7 @@ class ArcadeStore:
         shop_url: str | None = None,
     ) -> ArcadeEntry | None:
         """新增机厅；群内重名返回 None。"""
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             if (
                 await session.exec(
                     select(ArcadeEntry).where(
@@ -349,13 +349,13 @@ class ArcadeStore:
             )
             session.add(entry)
             await session.commit()
-            await session.refresh(entry)
+            # expire_on_commit=False：INSERT 时主键已回填，commit 后属性仍可读
             return entry
 
     @staticmethod
     async def delete_arcade(group_id: int, arcade_id: int) -> None:
         """删除机厅并级联清理别名/地图/队列/当日流水。"""
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             # 类型并集循环变量取不到列表达式（col 需要具体模型），逐表展开
             await session.exec(
                 delete(AliasEntry).where(
@@ -399,7 +399,7 @@ class ArcadeStore:
         _add_from_shop），无回写通道——曾经的 shop_id/source/url 死参数
         已随 L-16 收紧删除。
         """
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             entry = await session.get(ArcadeEntry, arcade_id)
             if entry is None:
                 return
@@ -411,7 +411,7 @@ class ArcadeStore:
 
     @staticmethod
     async def list_aliases(group_id: int, arcade_id: int) -> list[str]:
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             rows = await session.exec(
                 select(AliasEntry)
                 .where(
@@ -425,7 +425,7 @@ class ArcadeStore:
     @staticmethod
     async def add_alias(group_id: int, arcade_id: int, alias: str) -> bool:
         """添加别名；群内重复返回 False。"""
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             if (
                 await session.exec(
                     select(AliasEntry).where(
@@ -441,7 +441,7 @@ class ArcadeStore:
 
     @staticmethod
     async def remove_alias(group_id: int, arcade_id: int, alias: str) -> bool:
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             row = (
                 await session.exec(
                     select(AliasEntry).where(
@@ -461,7 +461,7 @@ class ArcadeStore:
 
     @staticmethod
     async def list_maps(group_id: int, arcade_id: int) -> list[str]:
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             rows = await session.exec(
                 select(MapEntry)
                 .where(
@@ -475,7 +475,7 @@ class ArcadeStore:
     @staticmethod
     async def add_map(group_id: int, arcade_id: int, url: str) -> bool:
         """添加地图网址；重复返回 False。"""
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             if (
                 await session.exec(
                     select(MapEntry).where(
@@ -492,7 +492,7 @@ class ArcadeStore:
 
     @staticmethod
     async def remove_map(group_id: int, arcade_id: int, url: str) -> bool:
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             row = (
                 await session.exec(
                     select(MapEntry).where(
@@ -512,7 +512,7 @@ class ArcadeStore:
 
     @staticmethod
     async def list_queue(group_id: int, arcade_id: int) -> list[QueueItem]:
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             return list(
                 await session.exec(
                     select(QueueItem)
@@ -529,7 +529,7 @@ class ArcadeStore:
         group_id: int, user_id: str
     ) -> tuple[ArcadeEntry, QueueItem] | None:
         """查某用户在群内的排队位置（含所在机厅）。"""
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             item = (
                 await session.exec(
                     select(QueueItem).where(
@@ -554,7 +554,7 @@ class ArcadeStore:
         group_id: int, arcade_id: int, user_id: str, nickname: str
     ) -> QueueItem:
         """入队（调用方保证该用户当前未在群内排卡）。"""
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             item = QueueItem(
                 group_id=group_id,
                 arcade_id=arcade_id,
@@ -563,12 +563,12 @@ class ArcadeStore:
             )
             session.add(item)
             await session.commit()
-            await session.refresh(item)
+            # expire_on_commit=False：同 add_arcade，属性 commit 后仍可读
             return item
 
     @staticmethod
     async def leave_queue(group_id: int, user_id: str) -> QueueItem | None:
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             item = (
                 await session.exec(
                     select(QueueItem).where(
@@ -586,7 +586,7 @@ class ArcadeStore:
     @staticmethod
     async def rotate_queue(group_id: int, arcade_id: int) -> None:
         """上机：队首移到队尾（重排 joined_at 保证次序稳定）。"""
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             items = (
                 await session.exec(
                     select(QueueItem)
@@ -605,7 +605,7 @@ class ArcadeStore:
     @staticmethod
     async def delay_in_queue(group_id: int, user_id: str) -> QueueItem | None:
         """延后：与下一位交换位次。已在队尾返回 None。"""
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             item = (
                 await session.exec(
                     select(QueueItem).where(
@@ -637,7 +637,7 @@ class ArcadeStore:
     @staticmethod
     async def clear_queue(group_id: int, arcade_id: int) -> int:
         """清空某机厅队列（闭店），返回清掉的人数。"""
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             result = await session.exec(
                 delete(QueueItem).where(
                     QueueItem.group_id == group_id,
@@ -645,13 +645,14 @@ class ArcadeStore:
                 )
             )
             await session.commit()
-            return result.rowcount
+            # rowcount 可能为 None（驱动未回报），统一 None→0 防「已清空 None 人」
+            return int(result.rowcount or 0)
 
     # ---- 人数 ----
 
     @staticmethod
     async def current_count(group_id: int, arcade_id: int) -> int:
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             rows = await session.exec(
                 select(CountLog).where(
                     CountLog.group_id == group_id,
@@ -662,7 +663,7 @@ class ArcadeStore:
 
     @staticmethod
     async def last_count_update(group_id: int, arcade_id: int) -> CountLog | None:
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             return (
                 await session.exec(
                     select(CountLog)
@@ -682,7 +683,7 @@ class ArcadeStore:
         「机厅人数」列表用：两条分组查询（每机厅最新一行 + delta 合计）
         一次拉全，替代此前每机厅 2 次查询的 N+1。
         """
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             latest_ids = (
                 select(func.max(CountLog.id))
                 .where(CountLog.group_id == group_id)
@@ -710,7 +711,7 @@ class ArcadeStore:
     async def add_count_log(
         group_id: int, arcade_id: int, delta: int, updated_by: str | None
     ) -> None:
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             session.add(
                 CountLog(
                     group_id=group_id,
@@ -726,7 +727,7 @@ class ArcadeStore:
         group_id: int, arcade_id: int, value: int, updated_by: str | None
     ) -> None:
         """清空当日流水后记一行绝对值（云端覆盖/显式重置用）。"""
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             await session.exec(
                 delete(CountLog).where(
                     col(CountLog.group_id) == group_id,
@@ -746,23 +747,23 @@ class ArcadeStore:
     @staticmethod
     async def clear_day_logs() -> int:
         """清零全部当日人数流水（每日 0 点 / 补偿执行），返回清掉的行数。"""
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             result = await session.exec(delete(CountLog))
             await session.commit()
-            return result.rowcount or 0
+            return int(result.rowcount or 0)
 
     # ---- KV ----
 
     @staticmethod
     async def get_meta(key: str) -> str | None:
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             if row := await session.get(MetaRow, key):
                 return row.value
             return None
 
     @staticmethod
     async def set_meta(key: str, value: str) -> None:
-        async with AsyncSession(get_engine()) as session:
+        async with make_session() as session:
             if row := await session.get(MetaRow, key):
                 row.value = value
             else:

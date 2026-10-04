@@ -276,7 +276,8 @@ async def test_private_delete_arcade_ask(app: App, monkeypatch):
         _private_event("测试店"),
         "已从群聊名单中删除机厅：测试店",
     )
-    assert await store.get_arcade(123456, entry.key) is None
+    # 删除后按名定位不到（原 get_arcade 死方法已删，语义等价改走本名查询）
+    assert await store.get_arcade_by_name(123456, "测试店") is None
 
 
 async def test_private_silent_superuser(app: App, monkeypatch):

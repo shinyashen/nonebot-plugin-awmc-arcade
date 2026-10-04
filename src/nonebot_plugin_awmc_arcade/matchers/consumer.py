@@ -104,7 +104,8 @@ async def _(
     text = event.message.extract_plain_text().strip()
     scope = _scope(event)
     user_id = event.get_user_id()
-    # 落库目标群：随会话 payload 携带（私聊扩权时 ≠ 会话 scope）
+    # 落库目标群：随会话 payload 携带（私聊扩权时 ≠ 会话 scope）。
+    # 所有 start 调用点均带 group_id，此兜底防 payload 结构破坏
     gid = pending.payload.get("group_id")
     if gid is None and isinstance(event, GroupMessageEvent):
         gid = event.group_id
@@ -116,6 +117,8 @@ async def _(
         return  # 无效选择静默吞掉（与上游一致）
     session.pop(scope, user_id)
     if gid is None:
+        # 不可达兜底（同上）：私聊且 payload 缺 group_id 时给设置指引，
+        # 防止静默无响应
         await session_consumer.finish(_NO_TARGET)
     if pending.topic == session.TOPIC_ADD:
         await _reply_search_menu(

@@ -35,15 +35,19 @@ _sessions: TtlSessionStore[tuple[int, str], PendingSession] = TtlSessionStore()
 
 def start(
     kind: str,
-    group_id: int,
+    scope: int,
     user_id: str,
     *,
     topic: str = "",
     payload: dict | None = None,
 ) -> None:
-    """开启/覆盖会话（附带惰性清扫过期项）。"""
+    """开启/覆盖会话（附带惰性清扫过期项）。
+
+    ``scope`` 是会话表的键维度（群聊=群号、私聊=0），不是落库目标群——
+    私聊扩权时目标群另存 ``payload.group_id``。
+    """
     _sessions.start(
-        (group_id, user_id),
+        (scope, user_id),
         PendingSession(
             kind=kind,
             topic=topic,
