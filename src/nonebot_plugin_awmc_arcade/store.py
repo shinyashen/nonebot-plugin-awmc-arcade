@@ -128,7 +128,8 @@ class ArcadeEntry(SQLModel, table=True):
     @property
     def key(self) -> int:
         """主键窄化：从库中读出或落库刷新后的条目 id 恒非空。"""
-        assert self.id is not None
+        if self.id is None:
+            raise RuntimeError("ArcadeEntry 未持久化（无主键）")
         return self.id
 
 

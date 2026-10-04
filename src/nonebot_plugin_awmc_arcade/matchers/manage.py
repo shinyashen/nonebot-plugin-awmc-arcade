@@ -92,7 +92,9 @@ async def _(event: MessageEvent, args: Message = CommandArg()):
     if not (text.isdigit() and len(text) >= GROUP_ID_MIN_LEN):
         # 最小位数与 _common._GROUP_PREFIX 的可选前导群号同口径（常量单源）：
         # 即设即校验，「管理群 1」不再等后续指令才以身份校验失败暴露
-        await manage_group_cmd.finish("格式：管理群 <群号>（群号至少 4 位数字）")
+        await manage_group_cmd.finish(
+            f"格式：管理群 <群号>（群号至少 {GROUP_ID_MIN_LEN} 位数字）"
+        )
     ttl = plugin_config.awmc_arcade_manage_ttl
     session.set_manage_group(uid, int(text), ttl)
     await manage_group_cmd.finish(

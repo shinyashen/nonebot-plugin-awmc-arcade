@@ -161,7 +161,9 @@ _SHOP_GAMES_TTL = 300.0
 
 同族缓存基于主插件 core.cache.TtlCache：matchers._common._admin_cache、
 地区树缓存（REGION_CACHE_TTL + store meta KV），调参时互相核对。"""
-_shop_games_cache = TtlCache(ttl=_SHOP_GAMES_TTL)
+# 旧手写缓存无容量上限，TtlCache 须显式给宽松 maxsize 而非落默认 128
+# （活跃店铺数超过上限会在 TTL 窗口内逐出，平白多打 Nearcade 详情）
+_shop_games_cache = TtlCache(ttl=_SHOP_GAMES_TTL, maxsize=1024)
 
 
 async def _shop_games(shop_id: str) -> list[dict]:

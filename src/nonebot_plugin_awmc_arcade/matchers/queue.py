@@ -20,6 +20,8 @@ from ._common import _target_group
 _QUEUE_ASK_NAME = "请输入机厅名称"
 _QUEUE_NO_ARCADE_JOIN = "没有该机厅，请使用添加机厅功能添加"
 _QUEUE_NO_ARCADE = "没有该机厅，若需要可使用添加机厅功能"
+_QUEUE_ALREADY_IN = "您已加入或正在其他机厅排卡"
+"""预查重与 IntegrityError 回退共用的同款文案（上游原文，两处须一致）。"""
 
 go_on = on_command("上机", priority=10, block=True)
 get_in = on_command("排卡", priority=10, block=True)
@@ -73,7 +75,7 @@ async def _(
     if not name:
         await get_in.finish(_QUEUE_ASK_NAME)
     if await store.get_queue_position(event.group_id, event.get_user_id()):
-        await get_in.finish("您已加入或正在其他机厅排卡")
+        await get_in.finish(_QUEUE_ALREADY_IN)
     entry = await service.resolve_arcade(event.group_id, name)
     if entry is None:
         await get_in.finish(_QUEUE_NO_ARCADE_JOIN)
@@ -87,7 +89,7 @@ async def _(
     except IntegrityError:
         # 查重 → 插入两步间存在 await 窗口：并发排卡撞 (群, 用户) 唯一约束，
         # 按预查重同文案回复（文案与上游一致）
-        await get_in.finish("您已加入或正在其他机厅排卡")
+        await get_in.finish(_QUEUE_ALREADY_IN)
     queue = await store.list_queue(event.group_id, entry.key)
     await get_in.finish(f"收到，您已加入排卡。当前您位于第{len(queue)}位。")
 
@@ -99,7 +101,10 @@ async def _(event: GroupMessageEvent):
     if position is None:
         await get_run.finish("您未加入排卡")
     entry, item = position
-    await store.leave_queue(event.group_id, event.get_user_id())
+    # 退勤也走队列锁：与上机/延后的「读-算-写」窗口互斥，防回复文案按
+    # 过期快照错位（如「已将A与B调换」实际换的是C）
+    async with _queue_lock(event.group_id, entry.key):
+        await store.leave_queue(event.group_id, event.get_user_id())
     await get_run.finish(f"{item.nickname}从{entry.name}退勤成功")
 
 
@@ -176,5 +181,6 @@ async def _(
     entry = await service.resolve_arcade(gid, name)
     if entry is None:
         await shut_down.finish(_QUEUE_NO_ARCADE)
-    cleared = await store.clear_queue(gid, entry.key)
+    async with _queue_lock(gid, entry.key):
+        cleared = await store.clear_queue(gid, entry.key)
     await shut_down.finish(f"闭店成功，已清空排队 {cleared} 人")
