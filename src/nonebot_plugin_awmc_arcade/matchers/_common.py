@@ -5,12 +5,12 @@
 """
 
 import re
-import time
 
 from nonebot import logger
 from nonebot.adapters import Bot
 from nonebot.permission import SUPERUSER
 from nonebot.adapters.onebot.v11 import MessageEvent, GroupMessageEvent
+from nonebot_plugin_awmc_helper.core.cache import TtlCache
 from nonebot.adapters.onebot.v11.permission import GROUP_ADMIN, GROUP_OWNER
 from nonebot_plugin_awmc_helper.core.forward import try_send_forward
 
@@ -21,10 +21,11 @@ _NOT_OPEN = "本群尚未开通排卡功能,请联系群主或管理员添加群
 _NO_TARGET = "请先用 管理群 <群号> 设置管理目标，或在指令开头带上群号"
 
 _ADMIN_CACHE_TTL = 300.0  # 管理员角色缓存秒数
-_ADMIN_CACHE_MAX = 512  # 缓存键上界（超过触发惰性清扫）
-# _admin_cache 为手写 TTL 缓存：同族还有 service._shop_games_cache 与
-# service 地区树缓存（REGION_CACHE_TTL + store meta KV），调参时互相核对
-_admin_cache: dict[tuple[int, str], tuple[bool, float]] = {}
+_ADMIN_CACHE_MAX = 512  # 缓存键上界（超出淘汰最旧写入）
+# _admin_cache 基于主插件 core.cache.TtlCache（TTL 惰性过期 + 容量淘汰）：
+# 同族还有 service._shop_games_cache 与 service 地区树缓存（REGION_CACHE_TTL
+# + store meta KV），调参时互相核对
+_admin_cache = TtlCache(ttl=_ADMIN_CACHE_TTL, maxsize=_ADMIN_CACHE_MAX)
 _DENY_MANAGE = "权限不足：你不是该群的管理员"
 
 # 私聊指令的可选前导群号：≥GROUP_ID_MIN_LEN 位与机厅序号参数（1-2 位）
@@ -52,16 +53,9 @@ async def _is_target_admin(bot: Bot, group_id: int, user_id: str) -> str | None:
     if str(user_id) in bot.config.superusers:
         return None
     key = (group_id, str(user_id))
-    now = time.monotonic()
-    if len(_admin_cache) > _ADMIN_CACHE_MAX:
-        # 惰性全表清扫：键空间 = 管理操作(群, 用户) 组合，过期项仅同键再访问时
-        # 才清除，低频管理场景攒得住，超界整轮清一次
-        for k in [k for k, v in _admin_cache.items() if v[1] <= now]:
-            del _admin_cache[k]
-    if cached := _admin_cache.get(key):
-        if cached[1] > now:
-            return None if cached[0] else _DENY_MANAGE
-        del _admin_cache[key]
+    # TtlCache 值 = 是否管理员（bool 非空值，get 未命中以 None 判别）
+    if (cached := _admin_cache.get(key)) is not None:
+        return None if cached else _DENY_MANAGE
     try:
         info = await bot.call_api(
             "get_group_member_info",
@@ -73,7 +67,7 @@ async def _is_target_admin(bot: Bot, group_id: int, user_id: str) -> str | None:
     except Exception:
         logger.warning(f"目标群管理员校验失败（群 {group_id}）", exc_info=True)
         return "身份校验失败：bot 可能不在该群"
-    _admin_cache[key] = (ok, now + _ADMIN_CACHE_TTL)
+    _admin_cache.set(key, ok)
     return None if ok else _DENY_MANAGE
 
 

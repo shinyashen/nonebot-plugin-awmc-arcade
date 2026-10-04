@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from nonebot import logger
 from nonebot_plugin_awmc_helper.config import plugin_config as awmc_helper_config
+from nonebot_plugin_awmc_helper.core.cache import TtlCache
 
 from . import session, nearcade
 from .store import ArcadeEntry, store
@@ -158,16 +159,16 @@ _SHOP_GAMES_TTL = 300.0
 """店铺机种列表进程内缓存秒数（机台数/gameId 变化极低频，砍查询/上报各
 一次详情请求；出勤人数**不**在此列——人数同步要求实时）。
 
-同族手写 TTL 缓存：matchers._common._admin_cache、地区树缓存
-（REGION_CACHE_TTL + store meta KV），调参时互相核对。"""
-_shop_games_cache: dict[str, tuple[float, list[dict]]] = {}
+同族缓存基于主插件 core.cache.TtlCache：matchers._common._admin_cache、
+地区树缓存（REGION_CACHE_TTL + store meta KV），调参时互相核对。"""
+_shop_games_cache = TtlCache(ttl=_SHOP_GAMES_TTL)
 
 
 async def _shop_games(shop_id: str) -> list[dict]:
     """云端店铺的机种列表（失败返回空；带短 TTL 进程内缓存）。"""
-    cached = _shop_games_cache.get(shop_id)
-    if cached is not None and time.monotonic() - cached[0] < _SHOP_GAMES_TTL:
-        return cached[1]
+    # 空 games 列表是合法缓存值（真无机种），get 命中与未命中以 None 判别
+    if (games := _shop_games_cache.get(shop_id)) is not None:
+        return games
     info = await nearcade.get_shop(shop_id)
     if info is None:
         # 瞬时失败不缓存（负缓存会压住云上传重试至多 5 分钟，与人数同步
@@ -176,7 +177,7 @@ async def _shop_games(shop_id: str) -> list[dict]:
     # shop 键存在但可为 null（上游 schema 允许），or {} 防 AttributeError；
     # games 同理 or []（len(None) 防御，与 nearcade.search_shops 兜底口径一致）
     games = (info.get("shop") or {}).get("games") or []
-    _shop_games_cache[shop_id] = (time.monotonic(), games)
+    _shop_games_cache.set(shop_id, games)
     return games
 
 
@@ -352,8 +353,9 @@ async def updated_today_reply(group_id: int) -> str:
 # ---- 添加机厅（Nearcade 搜索交互） ----
 
 # 地区词解析：@江苏 @南京 逐级下钻；首词若不是国家则默认在中国境内查找
-# REGION_CACHE_TTL 为地区树手写 TTL 缓存（存 store meta KV）：同族还有
-# _shop_games_cache 与 matchers._common._admin_cache，调参时互相核对
+# REGION_CACHE_TTL 为地区树持久缓存 TTL（存 store meta KV，非内存 TtlCache）：
+# 同族内存缓存还有 _shop_games_cache 与 matchers._common._admin_cache，
+# 调参时互相核对
 REGION_CACHE_TTL = 7 * 86400.0  # 地区树几乎不变，子级缓存 7 天
 _AT_REGION = re.compile(r"@(\S+)")
 

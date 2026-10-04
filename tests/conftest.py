@@ -52,7 +52,13 @@ async def after_nonebot_init(after_nonebot_init: None):
 
 @pytest.fixture(autouse=True)
 async def _stores(tmp_path):
-    """库文件重定向 + 清空内存会话/缓存（每用例独立）。"""
+    """库文件重定向 + 清空内存会话/缓存（每用例独立）。
+
+    会话表（TtlSessionStore）无 clear 接口，整体重建实例；管理员缓存
+    （TtlCache）走自带 clear。
+    """
+    from nonebot_plugin_awmc_helper.core.session_store import TtlSessionStore
+
     from nonebot_plugin_awmc_arcade import session
     from nonebot_plugin_awmc_arcade.store import init_store, set_db_file
     from nonebot_plugin_awmc_arcade.matchers._common import _admin_cache
@@ -61,6 +67,6 @@ async def _stores(tmp_path):
     await init_store()
     yield
     await set_db_file(None)
-    session._sessions.clear()
-    session._manage.clear()
+    session._sessions = TtlSessionStore()
+    session._manage = TtlSessionStore()
     _admin_cache.clear()

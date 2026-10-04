@@ -26,17 +26,16 @@ score-updater wechat_binding/play_count 族），空表无行、无实际影响�
 跨仓不重名。
 """
 
-import sqlite3
 from pathlib import Path
 from datetime import datetime
 
 from pydantic import NaiveDatetime
 from sqlmodel import Field, SQLModel, col, delete, select
 from sqlalchemy import UniqueConstraint, func
-from sqlalchemy.exc import OperationalError as SAOperationalError
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine
 from nonebot_plugin_localstore import get_data_dir
 from sqlmodel.ext.asyncio.session import AsyncSession
+from nonebot_plugin_awmc_helper.core.store import init_plugin_db, create_plugin_engine
 
 _engine: AsyncEngine | None = None
 _db_file: Path | None = None
@@ -65,15 +64,12 @@ async def set_db_file(path: Path | None) -> None:
 
 
 def get_engine() -> AsyncEngine:
-    """懒创建的异步引擎（与 awmc 生态其余插件同款模式）。
-
-    ⚠️ 本段引擎管理样板（重定向/dispose/懒创建/create_all 幂等建表）与
-    awmc 生态同款模式（主仓 core/store.py、传分仓 store.py 三处同构）：
-    改 Initialization 语义须三仓同步，勿单仓独走。
-    """
+    """懒创建的异步引擎；引擎构造走主插件 ``create_plugin_engine`` 工厂
+    （重定向/dispose/懒创建仍归本仓，``set_db_file`` 的测试重定向机制为本仓自有）。"""
     global _engine
     if _engine is None:
-        _engine = create_async_engine(f"sqlite+aiosqlite:///{db_file()}")
+        path = db_file()
+        _engine = create_plugin_engine(path.parent, path.name)
     return _engine
 
 
@@ -87,18 +83,13 @@ def make_session() -> AsyncSession:
 
 
 async def init_store() -> None:
-    """建表（create_all 起步）。
+    """建表（幂等）：走主插件 ``init_plugin_db`` 工厂。
 
-    create_all 的存在性检查与 CREATE 之间存在竞态（共享 metadata 会连带
-    主插件已加载模型，多 worker/多进程共享默认库路径时尤为明显），对
-    SQLite「table already exists」按幂等成功忽略（与主插件 init_db 同款）。
+    metadata 传 SQLModel 全局 metadata——任一仓 ``create_all`` 连带建出其他
+    仓已加载模型的空表，语义见模块 docstring；「already exists」按幂等成功
+    忽略的竞态处理同款收敛在工厂内。
     """
-    try:
-        async with get_engine().begin() as conn:
-            await conn.run_sync(SQLModel.metadata.create_all)
-    except (SAOperationalError, sqlite3.OperationalError) as e:
-        if "already exists" not in str(e):
-            raise
+    await init_plugin_db(get_engine(), SQLModel.metadata)
 
 
 class GroupCfg(SQLModel, table=True):
