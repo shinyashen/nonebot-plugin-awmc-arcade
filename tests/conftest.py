@@ -41,13 +41,27 @@ def pytest_collection_modifyitems(items: list[pytest.Item]):
 
 
 @pytest.fixture(scope="session", autouse=True)
-async def after_nonebot_init(after_nonebot_init: None):
+async def after_nonebot_init(after_nonebot_init: None, tmp_path_factory, worker_id):
     # 加载适配器
     driver = nonebot.get_driver()
     driver.register_adapter(OnebotV11Adapter)
 
     # 加载插件（[tool.nonebot]：本插件及其依赖链）
     nonebot.load_from_toml("pyproject.toml")
+
+    # db 钉到 per-worker 会话级临时文件。必须在**这里**做（依赖链保证先于
+    # nonebug_init 的 lifespan startup）：本插件 on_startup（_startup:
+    # init_store + ensure_daily_reset）随 lifespan 在每个 xdist worker 的
+    # session 开始时并发触发，_db_file 未重定向时同打 localstore 真实目录
+    # ——并发 create_all 撞 already-exists 被容错吞掉后建表中断（no such
+    # table: meta_row）、get/set_meta 交错（UNIQUE meta_row.key）。2026-10-05
+    # CI 实测；本地不复现因真实库已有当天日清标记，ensure_daily_reset 短路。
+    # 每用例的隔离仍由 function 级 _stores 重定向独立 tmp（2026-09-28 传分
+    # 仓同款解法）。
+    from nonebot_plugin_awmc_arcade.store import set_db_file
+
+    base = tmp_path_factory.mktemp(f"awmc-db-{worker_id}")
+    await set_db_file(base / "arcade-session.db")
 
 
 @pytest.fixture(autouse=True)
