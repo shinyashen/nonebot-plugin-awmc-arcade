@@ -7,7 +7,7 @@ from nonebot.params import CommandArg
 from sqlalchemy.exc import IntegrityError
 from nonebot.adapters import Bot
 from nonebot.adapters.onebot.v11 import Message, MessageEvent, GroupMessageEvent
-from nonebot_plugin_awmc_helper.core.utils import handle_errors
+from nonebot_plugin_awmc_helper.core.utils import NoTail, handle_errors
 
 from .. import service
 from ..store import store
@@ -44,7 +44,7 @@ def _queue_lock(group_id: int, arcade_id: int) -> asyncio.Lock:
 
 @go_on.handle()
 @handle_errors()
-async def _(event: GroupMessageEvent):
+async def _(_: NoTail, event: GroupMessageEvent):  # 「上机咯」类闲聊静默
     position = await store.get_queue_position(event.group_id, event.get_user_id())
     if position is None:
         await go_on.finish("您尚未排卡")
@@ -96,7 +96,7 @@ async def _(
 
 @get_run.handle()
 @handle_errors()
-async def _(event: GroupMessageEvent):
+async def _(_: NoTail, event: GroupMessageEvent):  # 「退勤了吗」类闲聊静默
     position = await store.get_queue_position(event.group_id, event.get_user_id())
     if position is None:
         await get_run.finish("您未加入排卡")
@@ -139,7 +139,7 @@ async def _(
 
 @put_off.handle()
 @handle_errors()
-async def _(event: GroupMessageEvent):
+async def _(_: NoTail, event: GroupMessageEvent):  # 「延后一下」类闲聊静默
     position = await store.get_queue_position(event.group_id, event.get_user_id())
     if position is None:
         await put_off.finish("您尚未排卡")

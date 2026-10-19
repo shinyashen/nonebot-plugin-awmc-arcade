@@ -732,3 +732,13 @@ def test_command_heads_include_command_start_prefixes():
     if "/" in starts:
         assert "/添加群聊" in _COMMAND_HEADS
     assert "机厅人数" in _COMMAND_HEADS  # on_fullmatch 同样纳入
+
+
+async def test_queue_no_arg_cmd_stray_tail_silent(app: App):
+    """「上机咯」「退勤了吗」「延后一下」类闲聊残片静默（主插件 core
+    NoTail 守卫，2026-10-19 误触发排查）；裸指令行为见 test_queue_flow。"""
+    from nonebot_plugin_awmc_arcade import go_on, get_run, put_off
+
+    await _no_reply(app, go_on, _event("上机咯", user_id=222))
+    await _no_reply(app, get_run, _event("退勤了吗"))
+    await _no_reply(app, put_off, _event("延后一下"))
