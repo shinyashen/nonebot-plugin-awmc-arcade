@@ -706,7 +706,7 @@ async def test_region_filtered_search():
 
 @respx.mock
 async def test_region_tree_failure_not_misread_as_missing():
-    """地区树瞬时失败给「查询失败」专项文案，不误判「未找到」（复审补）：
+    """地区树瞬时失败给「查询失败」专项文案，不误判「未找到」：
     根层失败、子层失败、省级并发扫描全省失败三条路径。"""
     from nonebot_plugin_awmc_arcade import service, session
     from nonebot_plugin_awmc_arcade.store import store

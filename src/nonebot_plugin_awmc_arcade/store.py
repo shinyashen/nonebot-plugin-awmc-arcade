@@ -21,9 +21,8 @@ SQLModel 全局 metadata 边界（三仓共知）：SQLModel 表默认注册到�
 metadata，任一仓 ``create_all`` 会把其他仓已加载模型的**空表**也建出来。
 表名三仓约定不重名（现状已满足：主仓 arcade 族 / arcade 仓 *_entry 族 /
 score-updater wechat_binding/play_count 族），空表无行、无实际影响；根治
-需独立 MetaData（SQLModel 支持有限，先调研，见主仓
-``local/code-review-3rd-deferred-structure.md`` 搁置项）。新表命名保持
-跨仓不重名。
+需独立 MetaData（SQLModel 支持有限，暂挂账调研）。新表命名保持跨仓
+不重名。
 """
 
 from pathlib import Path
@@ -389,7 +388,7 @@ class ArcadeStore:
 
         店铺关联（shop_id/url）只在搜索选择落库时写入（service 层
         _add_from_shop），无回写通道——曾经的 shop_id/source/url 死参数
-        已随 L-16 收紧删除。
+        已删除。
         """
         async with make_session() as session:
             entry = await session.get(ArcadeEntry, arcade_id)
