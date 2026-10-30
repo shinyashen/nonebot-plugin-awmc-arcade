@@ -278,6 +278,10 @@ async def _apply_count_update(
         cloud = await nearcade.get_attendance(shop_id)
         if cloud is not None and cloud != current:
             new_num = cloud + (new_num - current)
+        # 云端可能被其他群/他人改写（如置 0），合并后须复核界：越界即拒绝
+        # 改账与上传（防负数/超上限进共享云端账本），用户重新查看后再操作
+        if not 0 <= new_num <= plugin_config.awmc_arcade_max_count:
+            return _ERR_INVALID_NUM
 
     if op == OP_SET:
         await store.reset_count(group_id, arcade_id, new_num, user_name)

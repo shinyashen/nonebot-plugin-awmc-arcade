@@ -331,6 +331,32 @@ async def test_apply_count_no_maimai_game_no_upload():
 
 
 @respx.mock
+async def test_cloud_merge_below_local_rejects_negative():
+    """云端被改低 + DEC：合并后越界即拒绝，不改账不上传（不出负数）。
+
+    时序：本地 current=10、用户 -2（意图 8），云端被他人置 0 → 合并出
+    -2，须拒绝而非落账/上传负数（INC 对称写穿同由该复核拦截）。
+    """
+    from nonebot_plugin_awmc_arcade import service
+    from nonebot_plugin_awmc_arcade.store import store
+
+    entry = await _arcade_with_shop()
+    await store.reset_count(876, entry.key, 10, "测试")
+    respx.get(f"{BASE}/api/shops/{TENSHI_ID}/attendance").respond(json={"total": 0})
+    detail_route = respx.get(f"{BASE}/api/shops/{TENSHI_ID}").respond(json=DETAIL)
+    post_route = respx.post(f"{BASE}/api/shops/{TENSHI_ID}/attendance").mock(
+        return_value=Response(200, json={})
+    )
+    reply = await service.apply_count_update(
+        entry, service.OP_DEC, 2, "小明", silent=False
+    )
+    assert reply == service._ERR_INVALID_NUM
+    assert await store.current_count(876, entry.key) == 10  # 本地账本未动
+    assert not detail_route.called  # 不再继续机台数同步
+    assert not post_route.called  # 不向云端上传负数
+
+
+@respx.mock
 async def test_count_query_and_cloud_align():
     from nonebot_plugin_awmc_arcade import service
     from nonebot_plugin_awmc_arcade.store import store
