@@ -53,6 +53,9 @@ async def _(_: NoTail, event: GroupMessageEvent):  # 「上机咯」类闲聊静
     # 与 service._COUNT_LOCKS 同款按（群, 机厅）加锁串行
     async with _queue_lock(event.group_id, entry.key):
         queue = await store.list_queue(event.group_id, entry.key)
+        # 快照与持锁之间的窗口内队列可能被清空（闭店/删除机厅）：空队复检
+        if not queue:
+            await go_on.finish("您尚未排卡")
         if queue[0].id != item.id:
             await go_on.finish("暂时未到您,请耐心等待")
         if len(queue) == 1:
@@ -148,7 +151,13 @@ async def _(_: NoTail, event: GroupMessageEvent):  # 「延后一下」类闲聊
     # （队序错乱），与 service._COUNT_LOCKS 同款按（群, 机厅）加锁串行
     async with _queue_lock(event.group_id, entry.key):
         queue = await store.list_queue(event.group_id, entry.key)
-        index = next(i for i, q in enumerate(queue) if q.id == item.id)
+        # 快照与持锁之间的窗口内本人可能已被清队：缺席复检（next 空转
+        # StopIteration 会落到兜底文案）
+        index = next(
+            (i for i, q in enumerate(queue) if q.id == item.id), None
+        )
+        if index is None:
+            await put_off.finish("您尚未排卡")
         if index + 1 >= len(queue):
             await put_off.finish("您无需延后")
         nxt = queue[index + 1]
