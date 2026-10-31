@@ -752,9 +752,7 @@ async def test_alias_query_ask_chain(app: App):
     await _reply(
         app, get_alias, _event("机厅别名"), "请输入要查询别名的机厅名称/序号："
     )
-    await _reply(
-        app, session_consumer, _event("测试店"), "机厅「测试店」尚未添加别名"
-    )
+    await _reply(app, session_consumer, _event("测试店"), "机厅「测试店」尚未添加别名")
     # 会话结束：同一句不再被消费
     await _no_reply(app, session_consumer, _event("测试店"))
 
@@ -764,9 +762,7 @@ async def test_map_query_ask_chain(app: App):
     from nonebot_plugin_awmc_arcade import get_map, session_consumer
 
     await _open_group_with_arcade()
-    await _reply(
-        app, get_map, _event("机厅地图"), "请输入要查询地图的机厅名称/序号："
-    )
+    await _reply(app, get_map, _event("机厅地图"), "请输入要查询地图的机厅名称/序号：")
     await _reply(
         app, session_consumer, _event("测试店"), "机厅「测试店」尚未添加地图网址"
     )

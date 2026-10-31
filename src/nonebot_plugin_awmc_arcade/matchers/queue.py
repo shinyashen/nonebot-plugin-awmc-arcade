@@ -1,6 +1,5 @@
 """线上排卡域：上机 / 排卡 / 退勤 / 排卡现状（支持私聊查询）/ 延后 / 闭店。"""
 
-
 from nonebot import on_command
 from nonebot.params import CommandArg
 from sqlalchemy.exc import IntegrityError
@@ -144,9 +143,7 @@ async def _(_: NoTail, event: GroupMessageEvent):  # 「延后一下」类闲聊
         queue = await store.list_queue(event.group_id, entry.key)
         # 快照与持锁之间的窗口内本人可能已被清队：缺席复检（next 空转
         # StopIteration 会落到兜底文案）
-        index = next(
-            (i for i, q in enumerate(queue) if q.id == item.id), None
-        )
+        index = next((i for i, q in enumerate(queue) if q.id == item.id), None)
         if index is None:
             await put_off.finish("您尚未排卡")
         if index + 1 >= len(queue):
