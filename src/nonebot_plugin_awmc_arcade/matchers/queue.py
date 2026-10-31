@@ -1,6 +1,5 @@
 """线上排卡域：上机 / 排卡 / 退勤 / 排卡现状（支持私聊查询）/ 延后 / 闭店。"""
 
-import asyncio
 
 from nonebot import on_command
 from nonebot.params import CommandArg
@@ -30,16 +29,8 @@ show_list = on_command("排卡现状", priority=10, block=True)
 put_off = on_command("延后", priority=10, block=True)
 shut_down = on_command("闭店", priority=10, block=True)
 
-# 每（群, 机厅）一把锁；量级受群数×机厅数约束（单机部署 <千），泄漏无害，
-# 不做空闲回收——回收竞态复杂度不划算（与 service._COUNT_LOCKS 同款）
-_QUEUE_LOCKS: dict[tuple[int, int], asyncio.Lock] = {}
-
-
-def _queue_lock(group_id: int, arcade_id: int) -> asyncio.Lock:
-    lock = _QUEUE_LOCKS.get((group_id, arcade_id))
-    if lock is None:
-        lock = _QUEUE_LOCKS[(group_id, arcade_id)] = asyncio.Lock()
-    return lock
+# 与 service._count_lock 同工厂不同实例：排卡域独立锁 dict（不与人数上报互斥）
+_queue_lock = service._make_keyed_locks()
 
 
 @go_on.handle()

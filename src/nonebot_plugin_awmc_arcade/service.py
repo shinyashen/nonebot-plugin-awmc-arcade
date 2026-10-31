@@ -11,6 +11,7 @@ import time
 import asyncio
 from datetime import datetime
 from dataclasses import dataclass
+from collections.abc import Callable
 
 from nonebot import logger
 from nonebot_plugin_awmc_helper.config import plugin_config as awmc_helper_config
@@ -242,16 +243,24 @@ async def apply_count_update(
         return await _apply_count_update(entry, op, num, user_name, silent=silent)
 
 
-# 每（群, 机厅）一把锁；量级受群数×机厅数约束（单机部署 <千），泄漏无害，
-# 不做空闲回收——回收竞态复杂度不划算
-_COUNT_LOCKS: dict[tuple[int, int], asyncio.Lock] = {}
+def _make_keyed_locks() -> "Callable[[int, int], asyncio.Lock]":
+    """按（群, 机厅）键控锁的 get-or-create 工厂：调用域各持独立 dict 与锁实例。
+
+    量级受群数×机厅数约束（单机部署 <千），泄漏无害，不做空闲回收——回收
+    竞态复杂度不划算。
+    """
+    locks: dict[tuple[int, int], asyncio.Lock] = {}
+
+    def _lock(group_id: int, arcade_id: int) -> asyncio.Lock:
+        lock = locks.get((group_id, arcade_id))
+        if lock is None:
+            lock = locks[(group_id, arcade_id)] = asyncio.Lock()
+        return lock
+
+    return _lock
 
 
-def _count_lock(group_id: int, arcade_id: int) -> asyncio.Lock:
-    lock = _COUNT_LOCKS.get((group_id, arcade_id))
-    if lock is None:
-        lock = _COUNT_LOCKS[(group_id, arcade_id)] = asyncio.Lock()
-    return lock
+_count_lock = _make_keyed_locks()
 
 
 async def _apply_count_update(
@@ -554,14 +563,13 @@ def _build_menu(
     count_text = f"{len(shops)}+" if total == len(shops) + 1 else str(total)
     where = f"（{region_label}）" if region_label else ""
     actions = _menu_actions(query, has_more)
-    shops_text = "\n\n".join(
-        format_shop_info(shop, i) for i, shop in enumerate(shops, 1)
-    )
+    shop_infos = [format_shop_info(shop, i) for i, shop in enumerate(shops, 1)]
+    shops_text = "\n\n".join(shop_infos)
     text = f"🔍 找到 {count_text} 个相关机厅{where}：\n\n{shops_text}\n\n{actions}"
     nodes = [
         f"🔍 找到 {count_text} 个相关机厅{where}",
         actions,
-        *(format_shop_info(shop, i) for i, shop in enumerate(shops, 1)),
+        *shop_infos,
     ]
     return AddMenu(text=text, nodes=nodes)
 

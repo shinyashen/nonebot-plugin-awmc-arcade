@@ -742,3 +742,32 @@ async def test_queue_no_arg_cmd_stray_tail_silent(app: App):
     await _no_reply(app, go_on, _event("上机咯", user_id=222))
     await _no_reply(app, get_run, _event("退勤了吗"))
     await _no_reply(app, put_off, _event("延后一下"))
+
+
+async def test_alias_query_ask_chain(app: App):
+    """裸「机厅别名」→ 追问 → 店名出列表（此前该链路零覆盖）。"""
+    from nonebot_plugin_awmc_arcade import get_alias, session_consumer
+
+    await _open_group_with_arcade()
+    await _reply(
+        app, get_alias, _event("机厅别名"), "请输入要查询别名的机厅名称/序号："
+    )
+    await _reply(
+        app, session_consumer, _event("测试店"), "机厅「测试店」尚未添加别名"
+    )
+    # 会话结束：同一句不再被消费
+    await _no_reply(app, session_consumer, _event("测试店"))
+
+
+async def test_map_query_ask_chain(app: App):
+    """裸「机厅地图」→ 追问 → 店名出列表（与别名查询同链路另一形态）。"""
+    from nonebot_plugin_awmc_arcade import get_map, session_consumer
+
+    await _open_group_with_arcade()
+    await _reply(
+        app, get_map, _event("机厅地图"), "请输入要查询地图的机厅名称/序号："
+    )
+    await _reply(
+        app, session_consumer, _event("测试店"), "机厅「测试店」尚未添加地图网址"
+    )
+    await _no_reply(app, session_consumer, _event("测试店"))

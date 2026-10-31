@@ -102,34 +102,12 @@ async def _(event: MessageEvent, args: Message = CommandArg()):
     )
 
 
-@silent_on.handle()
-@handle_errors()
-async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
-    # matcher 已有 SUPERUSER 门禁：目标群解析无需再验身份
-    # （group_admin_required=False：deny 不会被消费，空串占位）
-    ctx = await _target_group(
-        bot,
-        event,
-        str(args).strip(),
-        open_required=True,
-        group_admin_required=False,
-        deny="",
-        private_admin_required=False,
-    )
-    if isinstance(ctx, str):
-        await silent_on.finish(ctx)
-    if await store.set_silent(ctx[0], True):
-        # 静默只吞上传结果回复：非法数值/无店铺关联/无上传通道等错误提示
-        # 保留（否则问题被无声吞掉），文案与实际行为对齐
-        await silent_on.finish(
-            "已开启静默监听模式：人数上报仅省略成功回复，错误提示保留"
-        )
-    await silent_on.finish(_NOT_OPEN)
-
-
-@silent_off.handle()
-@handle_errors()
-async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
+async def _apply_silent(
+    bot: Bot, event: MessageEvent, args: Message, matcher, *, enable: bool
+) -> None:
+    """silent_on/off 共用体：目标群解析（SUPERUSER 门禁在 matcher 上）→ 落库
+    → 回执。静默只吞上传结果回复：非法数值/无店铺关联/无上传通道等错误提示
+    保留（否则问题被无声吞掉），文案与实际行为对齐。"""
     # group_admin_required=False：deny 不会被消费，空串占位
     ctx = await _target_group(
         bot,
@@ -141,7 +119,23 @@ async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
         private_admin_required=False,
     )
     if isinstance(ctx, str):
-        await silent_off.finish(ctx)
-    if await store.set_silent(ctx[0], False):
-        await silent_off.finish("已关闭静默监听模式，恢复正常回复")
-    await silent_off.finish(_NOT_OPEN)
+        await matcher.finish(ctx)
+    if await store.set_silent(ctx[0], enable):
+        await matcher.finish(
+            "已开启静默监听模式：人数上报仅省略成功回复，错误提示保留"
+            if enable
+            else "已关闭静默监听模式，恢复正常回复"
+        )
+    await matcher.finish(_NOT_OPEN)
+
+
+@silent_on.handle()
+@handle_errors()
+async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
+    await _apply_silent(bot, event, args, silent_on, enable=True)
+
+
+@silent_off.handle()
+@handle_errors()
+async def _(bot: Bot, event: MessageEvent, args: Message = CommandArg()):
+    await _apply_silent(bot, event, args, silent_off, enable=False)
